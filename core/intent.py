@@ -1,15 +1,15 @@
-# core/intent.py
 import re
 from typing import Dict
 
 COLLEGE_KEYWORDS = [
     "college", "about college", "college name", "name of the college", "ideal college",
     "course", "courses", "fee", "fees", "fee structure",
-    "admission", "admissions", "hostel", "principal", "contact",
+    "admission", "admissions", "hostel", "principal", "vice principal", "contact",
     "facility", "facilities", "campus", "timings", "timing", "naac",
     "placements", "placement", "library", "bca", "bsc", "bba", "mca", "msc",
     "scholarship", "eligibility", "department", "faculty", "lab", "laboratory",
     "andhra university", "vidyuth nagar", "kakinada college", "arts and sciences",
+    "hod", "head of department", "staff", "teacher", "professor", "director",
     "కళాశాల", "కోర్సు", "కోర్సులు", "ఫీజు", "అడ్మిషన్", "హాస్టల్",
     "ప్రిన్సిపల్", "లైబ్రరీ", "ప్లేస్‌మెంట్", "సౌకర్యాలు", "సమయం"
 ]
@@ -49,6 +49,16 @@ VIDEO_KEYWORDS = [
     "వీడియో", "పూర్తి వివరాలు", "వివరణ"
 ]
 
+NON_CITY_WORDS = {
+    "weather", "report", "repoet", "repot", "reports", "today", "now",
+    "forecast", "current", "latest", "here", "there", "please",
+    "temperature", "climate", "check", "show", "get", "give",
+    "what", "how", "the", "a", "an", "is", "are", "was", "will",
+    "me", "my", "your", "our", "their", "tell", "know", "want",
+    "of", "in", "at", "for", "about", "and", "or", "please",
+    "humid", "humidity", "wind", "sunny", "cloudy", "rain", "cold", "hot"
+}
+
 
 def detect_language(text: str) -> str:
     if not text:
@@ -64,29 +74,57 @@ def detect_language(text: str) -> str:
     return "en"
 
 
+def _is_valid_city(word: str) -> bool:
+    return bool(word) and len(word) > 1 and word.lower() not in NON_CITY_WORDS
+
+
 def extract_city_from_weather(msg: str) -> str:
-    patterns = [
-        r"weather\s+(?:report\s+)?(?:of|in|at|for)\s+([a-zA-Z\s]+?)(?:\s+weather)?\s*(?:\?|$|today|now|forecast|report)",
-        r"([a-zA-Z\s]+?)\s+weather\s*(?:report|forecast|today|now)?\s*(?:\?|$)",
-        r"weather\s+(?:report\s+)?of\s+([a-zA-Z\s]+)",
-        r"(?:in|at|for)\s+([a-zA-Z\s]+?)\s+(?:weather|temperature|climate)",
-        r"temperature\s+(?:in|at|of)\s+([a-zA-Z\s]+)",
-    ]
     msg_clean = msg.strip()
+
+    # Priority 1: "in/at/of/for <city>" — most reliable
+    prep_match = re.search(
+        r'\b(?:in|at|of|for)\s+([a-zA-Z][a-zA-Z ]{1,30}?)(?:\s*(?:\?|$|today|now|please|weather|forecast|report)|\s*$)',
+        msg_clean, re.IGNORECASE
+    )
+    if prep_match:
+        candidate = prep_match.group(1).strip().strip("?.!, ")
+        city_words = [w for w in candidate.split() if _is_valid_city(w)]
+        if city_words:
+            return " ".join(city_words)
+
+    # Priority 2: "<city> weather"
+    city_before = re.search(
+        r'^([a-zA-Z][a-zA-Z ]{1,25}?)\s+weather',
+        msg_clean, re.IGNORECASE
+    )
+    if city_before:
+        candidate = city_before.group(1).strip()
+        city_words = [w for w in candidate.split() if _is_valid_city(w)]
+        if city_words:
+            return " ".join(city_words)
+
+    # Priority 3: other patterns
+    patterns = [
+        r"weather\s+(?:of|in|at|for)\s+([a-zA-Z][a-zA-Z ]{1,25})",
+        r"temperature\s+(?:in|at|of)\s+([a-zA-Z][a-zA-Z ]{1,25})",
+        r"climate\s+(?:of|in|at)\s+([a-zA-Z][a-zA-Z ]{1,25})",
+    ]
     for pat in patterns:
         m = re.search(pat, msg_clean, re.IGNORECASE)
         if m:
-            city = m.group(1).strip().strip("?.!, ")
-            if city and len(city) > 1:
-                return city
+            candidate = m.group(1).strip().strip("?.!, ")
+            city_words = [w for w in candidate.split() if _is_valid_city(w)]
+            if city_words:
+                return " ".join(city_words)
+
+    # Priority 4: scan words, pick first valid non-weather word
     words = msg_clean.split()
+    weather_indices = {i for i, w in enumerate(words) if w.lower() in ("weather", "temperature", "climate", "forecast")}
     for i, w in enumerate(words):
-        if w.lower() in ("weather", "temperature", "climate", "forecast", "report"):
-            for j in [i - 1, i + 1]:
-                if 0 <= j < len(words):
-                    c = words[j].strip("?.!,")
-                    if c and c.lower() not in ("weather", "the", "of", "in", "at", "for", "is", "today", "now", "report"):
-                        return c
+        cleaned = w.strip("?.!,")
+        if _is_valid_city(cleaned) and i not in weather_indices and (i - 1) not in weather_indices:
+            return cleaned
+
     return "Kakinada"
 
 
@@ -106,11 +144,11 @@ def classify_intent(message: str) -> Dict:
     if news_score >= 1:
         return {"intent": "news"}
 
-    search_score = sum(1 for k in SEARCH_KEYWORDS if k in msg)
     college_score = sum(1 for k in COLLEGE_KEYWORDS if k in msg)
-
     if college_score >= 1:
         return {"intent": "college"}
+
+    search_score = sum(1 for k in SEARCH_KEYWORDS if k in msg)
     if search_score >= 1:
         return {"intent": "search"}
 

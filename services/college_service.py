@@ -1,12 +1,15 @@
-# services/college_service.py
 """
-Reliable college-data retrieval.
-- Triggers strongly on words "ideal" / "college" / "campus" / Telugu equivalents.
-- Walks COLLEGE_DATABASE directly so answers always come from the local DB.
-- Returns clean, readable text — never raw JSON.
+services/college_service.py
+
+College data retrieval with optional AI explanation layer.
+Never returns raw JSON — always produces human-readable text.
 """
 
+import os
+import logging
 from data.college_data import COLLEGE_KEYWORDS, COLLEGE_DATABASE
+
+logger = logging.getLogger(__name__)
 
 try:
     from data.college_data import get_college_context as _get_context
@@ -20,8 +23,18 @@ TRIGGER_WORDS = [
 ]
 
 
-def _meta(): return COLLEGE_DATABASE.get("metadata", {}) or {}
-def _sections(): return COLLEGE_DATABASE.get("sections", {}) or {}
+def _has_ai_keys() -> bool:
+    return bool(os.getenv("GROQ_API_KEY", "") or os.getenv("OPEN_ROUTER_API", ""))
+
+
+def _meta():
+    return COLLEGE_DATABASE.get("metadata", {}) or {}
+
+
+def _sections():
+    return COLLEGE_DATABASE.get("sections", {}) or {}
+
+
 def _section_data(key, lang="en"):
     sec = _sections().get(key, {}) or {}
     data = sec.get("data", {}) or {}
@@ -30,9 +43,12 @@ def _section_data(key, lang="en"):
 
 def _stringify(value, indent=0) -> str:
     pad = "  " * indent
-    if value is None: return ""
-    if isinstance(value, str): return value
-    if isinstance(value, (int, float, bool)): return str(value)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
     if isinstance(value, list):
         out = []
         for v in value:
@@ -70,17 +86,33 @@ def _quick(q: str, lang: str):
         return m.get("affiliation")
     gen = _section_data("general_information", lang)
     if isinstance(gen, dict):
-        if "principal" in q and gen.get("principal"):
-            return f"Principal: {gen['principal']}"
-        if ("vice" in q and "principal" in q) and gen.get("vice_principal"):
-            return f"Vice Principal: {gen['vice_principal']}"
+        if "principal" in q and "vice" not in q and gen.get("principal"):
+            name = gen["principal"]
+            return (
+                f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు."
+                if lang == "te"
+                else f"The Principal of Ideal College is {name}."
+            )
+        if ("vice" in q and "principal" in q) or "vice principal" in q:
+            vp = gen.get("vice_principal", "")
+            if vp:
+                return (
+                    f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు."
+                    if lang == "te"
+                    else f"The Vice Principal of Ideal College is {vp}."
+                )
+        if "academic director" in q or "ranjith" in q:
+            return f"Academic Director: {gen.get('academic_director', 'Ranjith Sir')}"
+        if "administrative director" in q or "vasu" in q:
+            return f"Administrative Director: {gen.get('administrative_director', 'Vasu Sir')}"
         if "contact" in q or "phone" in q or "ఫోన్" in q:
-            return f"📞 {gen.get('contact','')}\n📧 {gen.get('email','')}"
-        if "email" in q or "mail" in q: return gen.get("email")
-        if "website" in q or "site" in q: return gen.get("website")
+            return f"📞 {gen.get('contact', '')}\n📧 {gen.get('email', '')}"
+        if "email" in q or "mail" in q:
+            return gen.get("email")
+        if "website" in q or "site" in q:
+            return gen.get("website")
         if "timing" in q or "hours" in q or "సమయం" in q:
-            return f"🕘 {gen.get('college_timings','')}\n🍽 Lunch: {gen.get('lunch_break','')}"
-        if "strength" in q or "students" in q: return gen.get("college_strength")
+            return f"🕘 {gen.get('college_timings', '')}\n🍽 Lunch: {gen.get('lunch_break.get("college_strength")
     return None
 
 
@@ -95,18 +127,24 @@ SECTION_HINTS = [
     (["placement", "placements", "drives", "company", "companies", "selected", "ప్లేస్‌మెంట్"], "placements"),
     (["faculty", "hod", "department", "staff", "teacher", "professor", "సిబ్బంది"], "faculty_and_departments"),
     (["governance", "director", "admin"], "governance_and_administration"),
+    (["admission", "eligibility", "documents", "అడ్మిషన్"], "admissions"),
+    (["sport", "nss", "ncc", "cultural", "activity"], "sports_and_activities"),
+    (["history", "founder", "established"], "historical_journey"),
+    (["rule", "uniform", "ragging", "mobile"], "student_rules"),
 ]
 
 
 def _resolve_section(q: str):
     for keys, sec in SECTION_HINTS:
-        if any(k in q for k in keys): return sec
+        if any(k in q for k in keys):
+            return sec
     return None
 
 
 def _format_section(section_key: str, q: str, lang: str = "en") -> str:
     data = _section_data(section_key, lang)
-    if not data: return ""
+    if not data:
+        return ""
 
     if section_key == "faculty_and_departments" and isinstance(data, dict):
         depts = data.get("departments", {}) or {}
@@ -120,11 +158,13 @@ def _format_section(section_key: str, q: str, lang: str = "en") -> str:
         }
         for k, aliases in dept_aliases.items():
             if any(a in q for a in aliases) and k in depts:
-                target = k; break
+                target = k
+                break
         if target:
             d = depts[target]
-            lines = [f"🏫 {d.get('name', target.replace('_',' ').title())}"]
-            if d.get("hod"): lines.append(f"HOD: {d['hod']}")
+            lines = [f"🏫 {d.get('name', target.replace('_', ' ').title())}"]
+            if d.get("hod"):
+                lines.append(f"HOD: {d['hod']}")
             if d.get("hods"):
                 for k, v in d["hods"].items():
                     lines.append(f"HOD ({k.upper()}): {v}")
@@ -132,7 +172,7 @@ def _format_section(section_key: str, q: str, lang: str = "en") -> str:
             if faculty:
                 lines.append("Faculty:")
                 for f in faculty:
-                    lines.append(f"  • {f.get('name','')} — {f.get('designation','')}")
+                    lines.append(f"  • {f.get('name', '')} — {f.get('designation', '')}")
             return "\n".join(lines)
         names = [d.get("name", k) for k, d in depts.items()]
         total = data.get("total_faculty")
@@ -146,11 +186,11 @@ def _format_section(section_key: str, q: str, lang: str = "en") -> str:
         st = data.get("statistics", {}) or {}
         if "2026" in st:
             sd = st["2026"].get("seniors_drive", {}) or {}
-            lines.append(f"2026 — Companies visited: {sd.get('visited_companies','-')}, "
-                         f"Students participated: {sd.get('students_participated','-')}, "
-                         f"Selected: {sd.get('students_selected','-')}.")
+            lines.append(f"2026 — Companies visited: {sd.get('visited_companies', '-')}, "
+                         f"Students participated: {sd.get('students_participated', '-')}, "
+                         f"Selected: {sd.get('students_selected', '-')}.")
         if "2025" in st:
-            lines.append(f"2025 — Selected: {st['2025'].get('selected_students','-')} students.")
+            lines.append(f"2025 — Selected: {st['2025'].get('selected_students', '-')} students.")
         if data.get("companies_visited_physical"):
             lines.append("Top recruiters: " + ", ".join(data["companies_visited_physical"][:8]) + ".")
         if data.get("training"):
@@ -160,41 +200,78 @@ def _format_section(section_key: str, q: str, lang: str = "en") -> str:
     return _stringify(data)
 
 
-def get_college_answer(message: str, lang: str = "en"):
-    if not message: return None
+def _explain_with_ai_context(raw_answer: str, question: str, lang: str) -> str:
+    if not _has_ai_keys():
+        return raw_answer
+    try:
+        from services.llm_service import query_ai
+        prompt = (
+            f"Question: {question}\n\n"
+            f"College Database says:\n{raw_answer}\n\n"
+            "Please rewrite the above as a clear, teacher-style explanation for a student. "
+            "Keep it accurate, add helpful context where relevant, and keep it under 5 sentences."
+        )
+        result = query_ai(prompt=prompt, lang=lang, mode="college")
+        if any(phrase in result.lower() for phrase in ["unable to reach", "try again", "providers", "moment"]):
+            return raw_answer
+        return result
+    except Exception:
+        return raw_answer
+
+
+def get_college_answer(message: str, lang: str = "en", explain: bool = True):
+    if not message:
+        return None
     q = message.lower().strip()
-    is_about_college = (any(t in q for t in TRIGGER_WORDS)
-                        or any(k.lower() in q for k in COLLEGE_KEYWORDS))
-    if not is_about_college: return None
+    is_about_college = (
+        any(t in q for t in TRIGGER_WORDS)
+        or any(k.lower() in q for k in COLLEGE_KEYWORDS)
+    )
+    if not is_about_college:
+        return None
 
     quick = _quick(q, lang)
-    if quick: return str(quick)
+    if quick:
+        raw = str(quick)
+        if explain and _has_ai_keys() and lang == "en" and len(raw) < 200:
+            return _explain_with_ai_context(raw, message, lang)
+        return raw
 
     sec = _resolve_section(q)
     if sec:
         out = _format_section(sec, q, lang)
-        if out: return out
+        if out:
+            if explain and _has_ai_keys() and lang == "en":
+                return _explain_with_ai_context(out, message, lang)
+            return out
 
     if any(k in q for k in ["about", "info", "tell me", "details", "overview", "ఏమి", "గురించి"]):
         m = _meta()
         gen = _section_data("general_information", lang) or {}
         parts = [
-            f"🏫 {m.get('college_name_en','Ideal College of Arts and Sciences')}",
-            f"📍 {m.get('location','Vidyuth Nagar, Kakinada, Andhra Pradesh')}",
-            f"🎓 Affiliation: {m.get('affiliation','Adikavi Nannaya University')}",
-            f"🏅 Accreditation: {m.get('accreditation','NAAC A Grade')}",
+            f"🏫 {m.get('college_name_en', 'Ideal College of Arts and Sciences')}",
+            f"📍 {m.get('location', 'Vidyuth Nagar, Kakinada, Andhra Pradesh')}",
+            f"🎓 Affiliation: {m.get('affiliation', 'Adikavi Nannaya University')}",
+            f"🏅 Accreditation: {m.get('accreditation', 'NAAC A Grade')}",
         ]
-        if gen.get("principal"): parts.append(f"👨‍🏫 Principal: {gen['principal']}")
-        if gen.get("college_timings"): parts.append(f"🕘 Timings: {gen['college_timings']}")
-        if gen.get("contact"): parts.append(f"📞 {gen['contact']}")
-        if gen.get("website"): parts.append(f"🌐 {gen['website']}")
+        if gen.get("principal"):
+            parts.append(f"👨‍🏫 Principal: {gen['principal']}")
+        if gen.get("college_timings"):
+            parts.append(f"🕘 Timings: {gen['college_timings']}")
+        if gen.get("contact"):
+            parts.append(f"📞 {gen['contact']}")
+        if gen.get("website"):
+            parts.append(f"🌐 {gen['website']}")
         return "\n".join(parts)
 
     for key, sec_data in _sections().items():
         kws = (sec_data.get("keywords_en") or []) + (sec_data.get("keywords_te") or [])
         if any(k.lower() in q for k in kws):
             out = _format_section(key, q, lang)
-            if out: return out
+            if out:
+                if explain and _has_ai_keys() and lang == "en":
+                    return _explain_with_ai_context(out, message, lang)
+                return out
 
     return None
 
@@ -203,7 +280,8 @@ def get_college_context() -> str:
     if _get_context:
         try:
             ctx = _get_context()
-            if ctx: return ctx
+            if ctx:
+                return ctx
         except Exception:
             pass
     m = _meta()
@@ -211,17 +289,18 @@ def get_college_context() -> str:
     courses = _section_data("courses") or {}
     fee = _section_data("fee_structure") or {}
     return (
-        f"College: {m.get('college_name_en','Ideal College of Arts and Sciences')}\n"
-        f"Location: {m.get('location','Vidyuth Nagar, Kakinada, Andhra Pradesh')}\n"
-        f"Affiliation: {m.get('affiliation','')}\n"
-        f"Accreditation: {m.get('accreditation','')}\n"
-        f"Principal: {gen.get('principal','')}\n"
-        f"Timings: {gen.get('college_timings','')}\n"
-        f"Contact: {gen.get('contact','')} | {gen.get('email','')}\n"
-        f"Website: {gen.get('website','')}\n"
+        f"College: {m.get('college_name_en', 'Ideal College of Arts and Sciences')}\n"
+        f"Location: {m.get('location', 'Vidyuth Nagar, Kakinada, Andhra Pradesh')}\n"
+        f"Affiliation: {m.get('affiliation', '')}\n"
+        f"Accreditation: {m.get('accreditation', '')}\n"
+        f"Principal: {gen.get('principal', '')}\n"
+        f"Vice Principal: {gen.get('vice_principal', '')}\n"
+        f"Timings: {gen.get('college_timings', '')}\n"
+        f"Contact: {gen.get('contact', '')} | {gen.get('email', '')}\n"
+        f"Website: {gen.get('website', '')}\n"
         f"UG Courses: {', '.join(courses.get('ug', []))}\n"
         f"PG Courses: {', '.join(courses.get('pg', []))}\n"
-        f"Fees: {fee.get('range','')}\n"
+        f"Fees: {fee.get('range', '')}\n"
     )
 
 
