@@ -112,25 +112,25 @@ def _quick(q: str, lang: str):
         if "website" in q or "site" in q:
             return gen.get("website")
         if "timing" in q or "hours" in q or "సమయం" in q:
-            return f"🕘 {gen.get('college_timings', '')}\n🍽 Lunch: {gen.get('lunch_break.get("college_strength","")
+            return f"🕘 {gen.get('college_timings', '')}\n🍽 Lunch: {gen.get('lunch_break','')}\n👨‍🎓 Students: {gen.get('college_strength', '')}"
     return None
 
 
 SECTION_HINTS = [
-    (["course", "ug", "pg", "stream", "branch", "కోర్సు"], "courses",""),
-    (["fee", "fees", "ఫీజు", "tuition"], "fee_structure",""),
-    (["hostel", "హాస్టల్", "accommodation"], "hostel_and_amenities",""),
-    (["bus", "transport", "బస్", "vehicle"], "transport",""),
-    (["library", "లైబ్రరీ", "books"], "library",""),
-    (["exam", "attendance", "పరీక్ష"], "examinations",""),
-    (["facility", "facilities", "lab", "wifi", "playground", "cafeteria", "cctv", "సదుపాయ"], "campus_facilities",""),
-    (["placement", "placements", "drives", "company", "companies", "selected", "ప్లేస్‌మెంట్"], "placements",""),
-    (["faculty", "hod", "department", "staff", "teacher", "professor", "సిబ్బంది"], "faculty_and_departments",""),
-    (["governance", "director", "admin"], "governance_and_administration",""),
-    (["admission", "eligibility", "documents", "అడ్మిషన్"], "admissions",""),
-    (["sport", "nss", "ncc", "cultural", "activity"], "sports_and_activities",""),
-    (["history", "founder", "established"], "historical_journey",""),
-    (["rule", "uniform", "ragging", "mobile"], "student_rules",""),
+    (["course", "ug", "pg", "stream", "branch", "కోర్సు"], "courses"),
+    (["fee", "fees", "ఫీజు", "tuition"], "fee_structure"),
+    (["hostel", "హాస్టల్", "accommodation"], "hostel_and_amenities"),
+    (["bus", "transport", "బస్", "vehicle"], "transport"),
+    (["library", "లైబ్రరీ", "books"], "library"),
+    (["exam", "attendance", "పరీక్ష"], "examinations"),
+    (["facility", "facilities", "lab", "wifi", "playground", "cafeteria", "cctv", "సదుపాయ"], "campus_facilities"),
+    (["placement", "placements", "drives", "company", "companies", "selected", "ప్లేస్‌మెంట్"], "placements"),
+    (["faculty", "hod", "department", "staff", "teacher", "professor", "సిబ్బంది"], "faculty_and_departments"),
+    (["governance", "director", "admin"], "governance_and_administration"),
+    (["admission", "eligibility", "documents", "అడ్మిషన్"], "admissions"),
+    (["sport", "nss", "ncc", "cultural", "activity"], "sports_and_activities"),
+    (["history", "founder", "established"], "historical_journey"),
+    (["rule", "uniform", "ragging", "mobile"], "student_rules"),
 ]
 
 
