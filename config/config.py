@@ -14,7 +14,7 @@ load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 # ====================== API KEYS ======================
 GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
 OPEN_ROUTER_API    = os.getenv("OPEN_ROUTER_API", "")
-WEATHER_API_KEY    = os.getenv("WEATHER_API_KEY", "")
+WEATHER_API_KEY    = os.getenv("OPENWEATHER_API_KEY", "")
 GNEWS_API          = os.getenv("GNEWS_API", "")
 NEWS_API_KEY       = os.getenv("NEWS_API_KEY", "")
 NEWS_DATA_API      = os.getenv("NEWS_DATA_API", "")

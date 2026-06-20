@@ -9,9 +9,7 @@ logger = logging.getLogger(__name__)
  
 # Accept either env var name so both .env and Render config work
 WEATHER_API_KEY = (
-    os.getenv("WEATHER_API_KEY", "")
-    or os.getenv("OPENWEATHER_API_KEY", "")
-    or os.getenv("WEATHERAPI_KEY", "")
+       os.getenv("OPENWEATHER_API_KEY", "")
 )
  
 _WMO_CODES = {
