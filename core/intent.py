@@ -10,9 +10,11 @@ COLLEGE_KEYWORDS = [
     "vidyuth nagar", "arts and sciences", "naac", "andhra university",
     "adikavi nannaya", "affiliation", "accreditation",
     # people
-    "principal", "vice principal", "hod", "head of department",
+    "principal", "vice principal", "computer science hod", "computer science head of department ",
     "faculty", "staff", "teacher", "professor", "director",
-    "satyanarayana", "ranjith", "vasu", "kama raju",
+    "satyanarayana", "ranjith", "vasu", "kama raju","academic director", "administrative director",
+    " agriculture head of the department", "agriculture hod","fisheries hod","bba hod","agriculture head of the department"
+    "bba head of the department","food technology head of the department","food technology hod",
     # academics
     "course", "courses", "bca", "bsc", "bba", "mca", "msc",
     "b.sc", "m.sc", "agriculture", "fisheries", "aqua",
@@ -68,7 +70,7 @@ WEATHER_KEYWORDS = [
     "weather", "weather report", "weather of", "weather in", "weather at",
     "temperature", "climate", "rain", "rainfall", "forecast", "humidity",
     "wind speed", "sunny", "cloudy", "storm", "hot weather", "cold weather",
-    "how is weather", "today weather", "current weather", "mausam",
+    "how is weather", "today weather", "current weather", "mausam","weather report of",
     "వాతావరణం", "ఉష్ణోగ్రత", "వర్షం", "వాతావరణ నివేదిక",
     "నేటి వాతావరణం",
 ]
@@ -94,13 +96,13 @@ SEARCH_KEYWORDS = [
 # ── Media keywords ────────────────────────────────────────────────────────
 IMAGE_KEYWORDS = [
     "image", "images", "photo", "photos", "campus photos", "gallery",
-    "picture", "pictures", "show me", "college images",
+    "picture", "pictures", "show me", "college images","campus images",
     "ఫోటోలు", "చిత్రాలు", "క్యాంపస్ ఫోటోలు",
 ]
  
 VIDEO_KEYWORDS = [
     "video", "full details", "full explanation", "explain college",
-    "college video", "tour", "virtual tour",
+    "college video", "tour", "virtual tour","campus video",
     "వీడియో", "పూర్తి వివరాలు",
 ]
  
