@@ -1,5 +1,13 @@
-
-# services/weather_service.py
+"""
+Weather service.
+ 
+Primary:  OpenWeatherMap (api.openweathermap.org) — matches the key in .env
+Fallback: Open-Meteo (free, no key required)
+ 
+Environment variables accepted (first non-empty wins):
+  OPENWEATHER_API_KEY   ← from .env
+  WEATHER_API_KEY       ← from Render config
+"""
 import os
 import logging
 import requests
@@ -7,9 +15,10 @@ from typing import Optional, Dict, Any
  
 logger = logging.getLogger(__name__)
  
-# Accept either env var name so both .env and Render config work
-WEATHER_API_KEY = (
-       os.getenv("OPENWEATHER_API_KEY", "")
+# Accept either name so .env and Render both work
+_OWM_KEY = (
+    os.getenv("OPENWEATHER_API_KEY", "")
+    or os.getenv("WEATHER_API_KEY", "")
 )
  
 _WMO_CODES = {
@@ -18,41 +27,46 @@ _WMO_CODES = {
     55: "Heavy drizzle", 61: "Light rain", 63: "Moderate rain", 65: "Heavy rain",
     71: "Light snow", 73: "Moderate snow", 75: "Heavy snow",
     80: "Rain showers", 81: "Heavy showers", 82: "Violent showers",
-    95: "Thunderstorm", 96: "Thunderstorm with hail", 99: "Heavy thunderstorm",
+    95: "Thunderstorm", 96: "Thunderstorm with hail",
 }
  
  
-def _weatherapi(city: str) -> Optional[Dict[str, Any]]:
-    """WeatherAPI.com — uses WEATHER_API_KEY."""
-    if not WEATHER_API_KEY:
+def _openweathermap(city: str) -> Optional[Dict[str, Any]]:
+    """OpenWeatherMap current weather — uses the key from .env."""
+    if not _OWM_KEY:
         return None
     try:
         resp = requests.get(
-            "https://api.weatherapi.com/v1/current.json",
-            params={"key": WEATHER_API_KEY, "q": city, "aqi": "no"},
-            timeout=12,
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={
+                "q":     city,
+                "appid": _OWM_KEY,
+                "units": "metric",
+            },
+            timeout=10,
         )
         if resp.status_code != 200:
-            logger.warning("WeatherAPI returned %s for city=%s", resp.status_code, city)
+            logger.warning("OWM returned %s for city=%r: %s", resp.status_code, city, resp.text[:200])
             return None
-        data = resp.json()
-        cur = data.get("current", {})
-        loc = data.get("location", {})
+        d   = resp.json()
+        main = d.get("main", {})
+        wind = d.get("wind", {})
+        weather = (d.get("weather") or [{}])[0]
         return {
-            "city":     loc.get("name", city),
-            "temp":     cur.get("temp_c", "N/A"),
-            "desc":     cur.get("condition", {}).get("text", "Unknown"),
-            "humidity": cur.get("humidity", "N/A"),
-            "wind":     cur.get("wind_kph", "N/A"),
-            "provider": "WeatherAPI",
+            "city":     d.get("name", city),
+            "temp":     round(main.get("temp", 0), 1),
+            "desc":     weather.get("description", "").capitalize(),
+            "humidity": main.get("humidity", "N/A"),
+            "wind":     round(wind.get("speed", 0) * 3.6, 1),  # m/s → km/h
+            "provider": "OpenWeatherMap",
         }
     except Exception as e:
-        logger.warning("WeatherAPI exception: %s", e)
+        logger.warning("OWM exception: %s", e)
         return None
  
  
 def _open_meteo(city: str) -> Optional[Dict[str, Any]]:
-    """Open-Meteo (free, no key required) — fallback."""
+    """Open-Meteo — completely free, no key needed."""
     try:
         geo = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
@@ -79,15 +93,15 @@ def _open_meteo(city: str) -> Optional[Dict[str, Any]]:
         )
         if w.status_code != 200:
             return None
-        current = w.json().get("current", {})
-        code = current.get("weather_code", -1)
+        cur  = w.json().get("current", {})
+        code = cur.get("weather_code", -1)
         return {
             "city":     name,
-            "temp":     current.get("temperature_2m", "N/A"),
+            "temp":     cur.get("temperature_2m", "N/A"),
             "desc":     _WMO_CODES.get(code, "Unknown"),
-            "humidity": current.get("relative_humidity_2m", "N/A"),
-            "wind":     current.get("wind_speed_10m", "N/A"),
-            "provider": "Open-Meteo (free)",
+            "humidity": cur.get("relative_humidity_2m", "N/A"),
+            "wind":     cur.get("wind_speed_10m", "N/A"),
+            "provider": "Open-Meteo",
         }
     except Exception as e:
         logger.warning("Open-Meteo exception: %s", e)
@@ -96,18 +110,15 @@ def _open_meteo(city: str) -> Optional[Dict[str, Any]]:
  
 def get_weather(city: str, lang: str = "en") -> str:
     city = (city or "Kakinada").strip()
-    data = _weatherapi(city) or _open_meteo(city)
+    data = _openweathermap(city) or _open_meteo(city)
  
     if not data:
         if lang == "te":
             return (
                 f"'{city}' వాతావరణ సమాచారం తీసుకోలేకపోయాను. "
-                "నగరం పేరు సరిగ్గా ఉందో తనిఖీ చేయండి."
+                "నగరం పేరు సరిగ్గా ఉందో చూడండి."
             )
-        return (
-            f"Couldn't fetch weather for '{city}'. "
-            "Please check the city name and try again."
-        )
+        return f"Couldn't fetch weather for '{city}'. Please check the city name and try again."
  
     if lang == "te":
         return (
@@ -124,4 +135,3 @@ def get_weather(city: str, lang: str = "en") -> str:
         f"💧 Humidity: {data['humidity']}%\n"
         f"💨 Wind: {data['wind']} km/h"
     )
- 
