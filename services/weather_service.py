@@ -1,3 +1,4 @@
+# services/weather_service.py
 """
 Weather service.
  
@@ -135,3 +136,4 @@ def get_weather(city: str, lang: str = "en") -> str:
         f"💧 Humidity: {data['humidity']}%\n"
         f"💨 Wind: {data['wind']} km/h"
     )
+ 

@@ -1,9 +1,7 @@
 # services/llm_service.py
 """
-LLM service — Groq (primary) → OpenRouter (fallback).
- 
-SHORT MODE (default):  1-2 sentence answer
-DETAILED MODE:         full explanation when user explicitly asks
+SHORT MODE (default): 1-2 sentence answers. max_tokens=100.
+DETAILED MODE: full explanation. max_tokens=500.
 """
 import os
 import logging
@@ -21,96 +19,93 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")
  
 # ── System prompts ─────────────────────────────────────────────────────────
  
-_SHORT_COLLEGE_EN = """You are IDEAL AI — the assistant for Ideal College of Arts and Sciences, Kakinada.
-RULES:
-- Answer in 1-2 sentences maximum.
-- Be direct. Answer only what was asked.
-- Do NOT add extra advice, history, or context unless asked.
-- Do NOT use ** or ## formatting.
-Example: "BCA fee enti?" → "The annual BCA fee at Ideal College is ₹50,000."
-STOP. Do not add more."""
+_COLLEGE_EN = (
+    "You are IDEAL AI for Ideal College of Arts and Sciences, Kakinada.\n"
+    "Answer in ONE sentence only. Use only the context provided.\n"
+    "Do NOT add extra information, advice, or context.\n"
+    "Do NOT use ** or ## symbols.\n"
+    'Example: Q:"Who is principal?" A:"The Principal is Dr. T. Satyanarayana."'
+)
+_COLLEGE_TE = (
+    "మీరు ఐడియల్ కాలేజ్ AI.\n"
+    "ఒక్క వాక్యంలో మాత్రమే సమాధానం ఇవ్వండి.\n"
+    "** లేదా ## వాడకండి."
+)
  
-_SHORT_COLLEGE_TE = """మీరు ఐడియల్ కాలేజ్ AI assistant.
-నియమాలు:
-- 1-2 వాక్యాలలో మాత్రమే సమాధానం ఇవ్వండి.
-- అడిగిన దానికి మాత్రమే సమాధానం ఇవ్వండి.
-- ** లేదా ## వాడకండి."""
+_SHORT_EN = (
+    "You are IDEAL AI — a helpful assistant.\n"
+    "Answer in ONE sentence only. Be direct and factual.\n"
+    "Do NOT explain, expand, or add context.\n"
+    "Do NOT use ** or ## symbols.\n"
+    'Examples:\n'
+    '"Who is Narendra Modi?" → "Narendra Modi is the Prime Minister of India."\n'
+    '"What is AI?" → "Artificial Intelligence (AI) enables computers to perform '
+    'tasks that normally require human intelligence."\n'
+    '"Who is AP CM?" → "N. Chandrababu Naidu is the Chief Minister of Andhra Pradesh."'
+)
+_SHORT_TE = (
+    "మీరు IDEAL AI.\n"
+    "ఒక్క వాక్యంలో మాత్రమే సమాధానం ఇవ్వండి.\n"
+    "** లేదా ## వాడకండి."
+)
  
-_SHORT_GENERAL_EN = """You are IDEAL AI — a helpful assistant for college students.
-RULES:
-- Answer in 1-2 sentences maximum.
-- Be direct and factual.
-- Do NOT write essays. Do NOT add history or context unless asked.
-- Do NOT use ** or ## formatting.
-Examples:
-Q: "Who is Narendra Modi?" → "Narendra Modi is the Prime Minister of India."
-Q: "What is AI?" → "Artificial Intelligence (AI) is technology that enables computers to perform tasks that normally require human intelligence."
-Q: "Who is AP CM?" → "N. Chandrababu Naidu is the Chief Minister of Andhra Pradesh."
-STOP after answering. Nothing more."""
- 
-_SHORT_GENERAL_TE = """మీరు IDEAL AI — విద్యార్థులకు సహాయపడే assistant.
-నియమాలు:
-- 1-2 వాక్యాలలో మాత్రమే సమాధానం ఇవ్వండి.
-- నేరుగా, స్పష్టంగా సమాధానం ఇవ్వండి.
-- ** లేదా ## వాడకండి."""
- 
-_DETAILED_GENERAL_EN = """You are IDEAL AI — a helpful teacher for college students.
-The user wants a detailed explanation. Explain clearly and thoroughly like a good teacher.
-Use simple language. Structure the answer well. Do NOT use ** or ## formatting."""
- 
-_DETAILED_GENERAL_TE = """మీరు IDEAL AI — విద్యార్థులకు వివరంగా చెప్పే teacher.
-స్పష్టంగా, సరళంగా వివరించండి. ** లేదా ## వాడకండి."""
+_DETAILED_EN = (
+    "You are IDEAL AI — a helpful teacher for students.\n"
+    "Give a clear, thorough explanation. Use simple language.\n"
+    "Do NOT use ** or ## symbols."
+)
+_DETAILED_TE = (
+    "మీరు IDEAL AI — teacher.\n"
+    "స్పష్టంగా, వివరంగా వివరించండి. ** లేదా ## వాడకండి."
+)
  
  
-def _pick_system(mode: str, lang: str, detailed: bool) -> str:
+def _system(mode: str, lang: str, detailed: bool) -> str:
     if mode == "college":
-        return _SHORT_COLLEGE_TE if lang == "te" else _SHORT_COLLEGE_EN
+        return _COLLEGE_TE if lang == "te" else _COLLEGE_EN
     if detailed:
-        return _DETAILED_GENERAL_TE if lang == "te" else _DETAILED_GENERAL_EN
-    return _SHORT_GENERAL_TE if lang == "te" else _SHORT_GENERAL_EN
+        return _DETAILED_TE if lang == "te" else _DETAILED_EN
+    return _SHORT_TE if lang == "te" else _SHORT_EN
  
  
-def _build_messages(
-    prompt: str,
-    history: Optional[List[Dict]],
-    lang: str,
-    context: str,
-    mode: str,
-    detailed: bool,
-) -> List[Dict]:
-    sys_content = _pick_system(mode, lang, detailed)
+def _msgs(prompt, history, lang, context, mode, detailed):
+    sys = _system(mode, lang, detailed)
     if context:
-        sys_content += f"\n\nContext:\n{context}"
-    msgs = [{"role": "system", "content": sys_content}]
-    for m in (history or [])[-4:]:          # keep last 4 turns only
+        sys += f"\n\nContext:\n{context}"
+    out = [{"role": "system", "content": sys}]
+    for m in (history or [])[-4:]:
         if m.get("role") in {"user", "assistant"} and m.get("content"):
-            msgs.append({"role": m["role"], "content": str(m["content"])[:400]})
-    msgs.append({"role": "user", "content": prompt})
-    return msgs
+            out.append({"role": m["role"], "content": str(m["content"])[:300]})
+    out.append({"role": "user", "content": prompt})
+    return out
  
  
-def _call_groq(msgs: List[Dict], detailed: bool) -> str:
+def _groq(msgs, detailed):
     if not GROQ_API_KEY:
         raise RuntimeError("No GROQ_API_KEY")
+    print(f"[AI] Calling Groq model={GROQ_MODEL} detailed={detailed}")
     client = Groq(api_key=GROQ_API_KEY)
     res = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=msgs,
-        temperature=0.3,
-        max_tokens=400 if detailed else 150,   # SHORT MODE capped at 150 tokens
+        temperature=0.2,
+        max_tokens=500 if detailed else 100,  # 100 tokens ≈ 1-2 sentences hard cap
     )
-    return (res.choices[0].message.content or "").strip()
+    reply = (res.choices[0].message.content or "").strip()
+    print(f"[AI] Groq reply ({len(reply)} chars): {reply[:80]}...")
+    return reply
  
  
-def _call_openrouter(msgs: List[Dict], detailed: bool) -> str:
+def _openrouter(msgs, detailed):
     if not OPEN_ROUTER_API:
         raise RuntimeError("No OPEN_ROUTER_API")
+    print(f"[AI] Calling OpenRouter model={OPENROUTER_MODEL}")
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPEN_ROUTER_API)
     res = client.chat.completions.create(
         model=OPENROUTER_MODEL,
         messages=msgs,
-        temperature=0.3,
-        max_tokens=400 if detailed else 150,
+        temperature=0.2,
+        max_tokens=500 if detailed else 100,
     )
     return (res.choices[0].message.content or "").strip()
  
@@ -123,19 +118,18 @@ def query_ai(
     mode: str = "general",
     detailed: bool = False,
 ) -> str:
-    """
-    mode:     "college" or "general"
-    detailed: True → full explanation; False (default) → 1-2 sentence answer
-    """
-    msgs = _build_messages(prompt, history, lang, context, mode, detailed)
+    print(f"[AI] query_ai called: mode={mode} lang={lang} detailed={detailed}")
+    m = _msgs(prompt, history, lang, context, mode, detailed)
     try:
-        return _call_groq(msgs, detailed)
+        return _groq(m, detailed)
     except Exception as e:
-        logger.warning("Groq failed (%s), trying OpenRouter", e)
+        logger.warning("Groq failed: %s", e)
+        print(f"[AI] Groq failed: {e}")
         try:
-            return _call_openrouter(msgs, detailed)
+            return _openrouter(m, detailed)
         except Exception as e2:
-            logger.error("OpenRouter also failed: %s", e2)
+            logger.error("OpenRouter failed: %s", e2)
+            print(f"[AI] OpenRouter failed: {e2}")
             if lang == "te":
-                return "AI సేవలు ఇప్పుడు అందుబాటులో లేవు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
-            return "I'm unable to reach AI services right now. Please try again in a moment."
+                return "AI సేవలు ఇప్పుడు అందుబాటులో లేవు."
+            return "AI services unavailable. Please try again."
