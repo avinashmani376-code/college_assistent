@@ -1,59 +1,58 @@
 """
 services/college_service.py
- 
+
 Rules:
 - Return ONLY the answer to the question asked. Nothing extra.
 - DB answers: direct one-liners or short lists.
-- AI only as last resort (DB total miss). ONE call.
+- AI only as last resort (DB total miss). ONE call, strict context.
 """
 import os
 import logging
 from data.college_data import COLLEGE_DATABASE
- 
+
 logger = logging.getLogger(__name__)
- 
+
 try:
     from data.college_data import get_college_context as _get_context
     from data.college_data import COLLEGE_KEYWORDS
 except Exception:
     _get_context = None
     COLLEGE_KEYWORDS = []
- 
+
 # Gate: question must contain at least one of these to be handled here.
-# Includes director/staff names that are NOT in college_data.COLLEGE_KEYWORDS.
 TRIGGER_WORDS = [
     "ideal", "college", "campus", "kakinada college", "vidyuth nagar",
     "director", "academic director", "administrative director",
     "ranjith", "vasu", "satyanarayana", "kama raju",
     "కళాశాల", "కాలేజీ", "ఐడియల్",
 ]
- 
+
 _EXTRA_GATE_WORDS = [
     "director", "ranjith", "vasu", "satyanarayana", "kama raju",
     "academic", "administrative", "exam incharge",
 ]
- 
- 
+
+
 def _has_ai_keys() -> bool:
     return bool(os.getenv("GROQ_API_KEY", "") or os.getenv("OPEN_ROUTER_API", ""))
- 
- 
+
+
 def _meta():
     return COLLEGE_DATABASE.get("metadata", {}) or {}
- 
- 
+
+
 def _sections():
     return COLLEGE_DATABASE.get("sections", {}) or {}
- 
- 
+
+
 def _section_data(key, lang="en"):
     sec = _sections().get(key, {}) or {}
     data = sec.get("data", {}) or {}
     return data.get(lang) or data.get("en") or data
- 
- 
+
+
 # ── Short formatters — each returns ONE clean answer line ─────────────────
- 
+
 def _fmt_courses(data) -> str:
     if not isinstance(data, dict):
         return str(data)
@@ -65,16 +64,16 @@ def _fmt_courses(data) -> str:
     if pg:
         parts.append("PG (2yr): " + ", ".join(pg))
     return "\n".join(parts) if parts else "Please contact the college for course details."
- 
- 
+
+
 def _fmt_hostel(data) -> str:
     if isinstance(data, dict):
         fee   = data.get("fee") or data.get("annual_fee") or "₹60,000/year"
         avail = data.get("availability") or "Available for boys and girls separately"
         return f"Hostel is available at Ideal College. Fee: {fee}. {avail}."
     return "Hostel facility is available. Contact college for details."
- 
- 
+
+
 def _fmt_transport(data) -> str:
     if isinstance(data, dict):
         routes = data.get("routes") or data.get("areas") or []
@@ -84,8 +83,8 @@ def _fmt_transport(data) -> str:
         if desc:
             return str(desc)
     return "Bus/transport facility is available. Contact college for route details."
- 
- 
+
+
 def _fmt_library(data) -> str:
     if isinstance(data, dict):
         books = data.get("books") or data.get("total_books") or ""
@@ -95,8 +94,8 @@ def _fmt_library(data) -> str:
         if desc:
             return str(desc)
     return "Library is available with reference and lending sections."
- 
- 
+
+
 def _fmt_admissions(data) -> str:
     if isinstance(data, dict):
         elig = data.get("eligibility") or data.get("criteria") or ""
@@ -109,8 +108,8 @@ def _fmt_admissions(data) -> str:
         if out:
             return "\n".join(out)
     return "Contact the college admissions office for eligibility and process details."
- 
- 
+
+
 def _fmt_facilities(data) -> str:
     if isinstance(data, dict):
         items = []
@@ -122,8 +121,8 @@ def _fmt_facilities(data) -> str:
         if items:
             return "Available facilities: " + ", ".join(items) + "."
     return "Campus facilities include labs, library, Wi-Fi, cafeteria, playground and more."
- 
- 
+
+
 def _fmt_placements(data) -> str:
     if not isinstance(data, dict):
         return "Placement drives are conducted every year."
@@ -141,8 +140,8 @@ def _fmt_placements(data) -> str:
     if phys:
         lines.append("Recruiters: " + ", ".join(phys[:6]) + ".")
     return "\n".join(lines)
- 
- 
+
+
 def _fmt_fee(data, q: str) -> str:
     if not isinstance(data, dict):
         return "Contact the college for fee details."
@@ -165,8 +164,8 @@ def _fmt_fee(data, q: str) -> str:
             return f"The annual {label} fee at Ideal College is {fee}."
     rng = data.get("range", "₹45,000–₹60,000 per year")
     return f"Fee range at Ideal College: {rng}."
- 
- 
+
+
 def _fmt_exams(data) -> str:
     if isinstance(data, dict):
         att = data.get("minimum_attendance") or data.get("attendance_required") or ""
@@ -176,16 +175,16 @@ def _fmt_exams(data) -> str:
         if desc:
             return str(desc)
     return "Exams follow Adikavi Nannaya University pattern. 75% minimum attendance required."
- 
- 
+
+
 def _fmt_sports(data) -> str:
     if isinstance(data, dict):
         items = data.get("sports") or data.get("activities") or []
         if items and isinstance(items, list):
             return "Sports/activities: " + ", ".join(str(i) for i in items[:8]) + "."
     return "Sports and cultural activities including NSS, NCC, cricket, volleyball and more."
- 
- 
+
+
 def _fmt_history(data) -> str:
     if isinstance(data, dict):
         est = data.get("established") or data.get("founded") or ""
@@ -198,16 +197,16 @@ def _fmt_history(data) -> str:
         if out:
             return ". ".join(out) + "."
     return "Ideal College was established in 2000."
- 
- 
+
+
 def _fmt_rules(data) -> str:
     if isinstance(data, dict):
         items = data.get("rules") or data.get("regulations") or []
         if items and isinstance(items, list):
             return "Student rules: " + "; ".join(str(r) for r in items[:4]) + "."
     return "College has strict anti-ragging policy. Uniform and mobile restrictions apply."
- 
- 
+
+
 def _fmt_faculty(data, q: str) -> str:
     if not isinstance(data, dict):
         return ""
@@ -235,9 +234,9 @@ def _fmt_faculty(data, q: str) -> str:
     body  = "\n".join(f"  • {n}" for n in names)
     tail  = f"\nTotal Faculty: {total}" if total else ""
     return f"Departments:\n{body}{tail}"
- 
- 
-# Section dispatch table — maps section key → short formatter
+
+
+# Section dispatch table
 _SECTION_FMT = {
     "courses":                    lambda data, q, lang: _fmt_courses(data),
     "fee_structure":              lambda data, q, lang: _fmt_fee(data, q),
@@ -254,7 +253,7 @@ _SECTION_FMT = {
     "historical_journey":         lambda data, q, lang: _fmt_history(data),
     "student_rules":              lambda data, q, lang: _fmt_rules(data),
 }
- 
+
 # Section routing: keyword → section key
 SECTION_HINTS = [
     (["course", "ug", "pg", "stream", "branch", "కోర్సు",
@@ -285,82 +284,82 @@ SECTION_HINTS = [
     (["soft skill", "crt", "spoken english", "competitive exam",
       "training"], "crt_and_soft_skills"),
 ]
- 
- 
+
+
 def _resolve_section(q: str):
     for keys, sec in SECTION_HINTS:
         if any(k in q for k in keys):
             return sec
     return None
- 
- 
+
+
 def _quick(q: str, lang: str):
     """Return a single direct answer string. No AI. No extra info."""
     m = _meta()
- 
+
     if any(k in q for k in ["college name", "name of the college", "కళాశాల పేరు"]):
         return m.get("college_name_te") if lang == "te" else m.get("college_name_en")
- 
+
     if any(k in q for k in ["location", "address", "where is", "where", "ఎక్కడ"]):
         return m.get("location")
- 
+
     if "naac" in q or "accredit" in q:
         return m.get("accreditation") or "NAAC 'A' Grade"
- 
+
     if "affiliat" in q:
         return m.get("affiliation")
- 
+
     gen = _section_data("general_information", lang)
     if not isinstance(gen, dict):
         return None
- 
+
     if "principal" in q and "vice" not in q:
         name = gen.get("principal", "")
         if name:
             return (f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు."
                     if lang == "te" else f"The Principal of Ideal College is {name}.")
- 
+
     if "vice principal" in q or ("vice" in q and "principal" in q):
         vp = gen.get("vice_principal", "")
         if vp:
             return (f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు."
                     if lang == "te" else f"The Vice Principal of Ideal College is {vp}.")
- 
+
     if any(k in q for k in ["academic director", "ranjith"]):
         name = gen.get("academic_director", "Ranjith Sir")
         return (f"Academic Director: {name}."
                 if lang == "te" else f"The Academic Director of Ideal College is {name}.")
- 
+
     if any(k in q for k in ["administrative director", "admin director", "vasu"]):
         name = gen.get("administrative_director", "Vasu Sir")
         return (f"Administrative Director: {name}."
                 if lang == "te" else f"The Administrative Director of Ideal College is {name}.")
- 
+
     if "director" in q and "academic" not in q and "administrative" not in q:
         acad  = gen.get("academic_director", "Ranjith Sir")
         admin = gen.get("administrative_director", "Vasu Sir")
         return f"Academic Director: {acad}\nAdministrative Director: {admin}"
- 
+
     if any(k in q for k in ["contact", "phone", "ఫోన్", "number", "call"]):
         return f"📞 {gen.get('contact', '')}\n📧 {gen.get('email', '')}"
- 
+
     if any(k in q for k in ["email", "mail"]):
         return gen.get("email", "")
- 
+
     if any(k in q for k in ["website", "site", "link", "url"]):
         return gen.get("website", "")
- 
+
     if any(k in q for k in ["timing", "timings", "hours", "time", "సమయం", "open"]):
         t = gen.get("college_timings", "9:30 AM – 3:45 PM (Mon–Sat)")
         l = gen.get("lunch_break", "1:00 PM – 1:45 PM")
         return f"🕘 {t}\n🍽 Lunch break: {l}"
- 
+
     if any(k in q for k in ["strength", "how many students", "total students"]):
         return gen.get("college_strength", "")
- 
+
     return None
- 
- 
+
+
 def _format_section(section_key: str, q: str, lang: str = "en") -> str:
     data = _section_data(section_key, lang)
     if not data:
@@ -368,29 +367,71 @@ def _format_section(section_key: str, q: str, lang: str = "en") -> str:
     fmt = _SECTION_FMT.get(section_key)
     if fmt:
         return fmt(data, q, lang)
-    # Unknown section — return empty so AI fallback handles it
     return ""
- 
- 
-def _ai_fallback(message: str, lang: str, context: str) -> str:
-    """ONE AI call. College mode = strict 1-sentence answer."""
+
+
+def _build_minimal_context(question: str) -> str:
+    """
+    Build the smallest possible context for AI fallback — only info
+    likely relevant to the question. Avoids dumping the entire DB.
+    """
+    q = question.lower()
+    m   = _meta()
+    gen = _section_data("general_information") or {}
+
+    # Always include identity info
+    lines = [
+        f"College: {m.get('college_name_en', 'Ideal College of Arts and Sciences')}",
+        f"Location: {m.get('location', 'Vidyuth Nagar, Kakinada, AP')}",
+        f"Contact: {gen.get('contact', '0884-2384382')}",
+        f"Principal: {gen.get('principal', 'Dr. T. Satyanarayana')}",
+    ]
+
+    # Add section data only if the question is about it
+    section_map = {
+        ("fee", "cost", "tuition"):           "fee_structure",
+        ("hostel", "accommodation", "mess"):  "hostel_and_amenities",
+        ("placement", "job", "company"):      "placements",
+        ("course", "ug", "pg", "bca", "bsc"): "courses",
+        ("admission", "eligibility", "join"): "admissions",
+        ("faculty", "hod", "department"):     "faculty_and_departments",
+        ("transport", "bus"):                 "transport",
+        ("library",):                         "library",
+        ("exam", "attendance"):               "examinations",
+        ("facility", "lab", "wifi"):          "campus_facilities",
+        ("sport", "nss", "ncc"):              "sports_and_activities",
+    }
+    for kw_tuple, sec_key in section_map.items():
+        if any(k in q for k in kw_tuple):
+            sec_data = _section_data(sec_key)
+            if sec_data:
+                lines.append(f"\n[{sec_key}]: {str(sec_data)[:400]}")
+            break   # only inject the most relevant section
+
+    return "\n".join(lines)
+
+
+def _ai_fallback(message: str, lang: str) -> str:
+    """ONE AI call with minimal, targeted context. College mode = strict answer only."""
     try:
         from services.llm_service import query_ai
-        return query_ai(prompt=message, lang=lang, context=context, mode="college")
+        ctx = _build_minimal_context(message)
+        print(f"[COLLEGE] AI fallback context ({len(ctx)} chars)")
+        return query_ai(prompt=message, lang=lang, context=ctx, mode="college")
     except Exception as e:
-        logger.warning("AI fallback failed: %s", e)
+        logger.warning("[COLLEGE] AI fallback failed: %s", e)
         return (
             "దయచేసి కాలేజీని నేరుగా సంప్రదించండి: 0884-2384382"
             if lang == "te" else
             "Please contact the college directly: 0884-2384382"
         )
- 
- 
+
+
 def get_college_answer(message: str, lang: str = "en", explain: bool = True):
     if not message:
         return None
     q = message.lower().strip()
- 
+
     # Gate check
     is_about_college = (
         any(t in q for t in TRIGGER_WORDS)
@@ -399,19 +440,19 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
     )
     if not is_about_college:
         return None
- 
+
     # 1. Fast direct match
     quick = _quick(q, lang)
     if quick:
         return str(quick).strip()
- 
+
     # 2. Section-based answer
     sec = _resolve_section(q)
     if sec:
         out = _format_section(sec, q, lang)
         if out:
             return out.strip()
- 
+
     # 3. General overview (only when "about", "info", "tell me" etc.)
     if any(k in q for k in ["about", "info", "overview", "గురించి"]):
         m   = _meta()
@@ -427,7 +468,7 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
         if gen.get("contact"):
             parts.append(f"📞 {gen['contact']}")
         return "\n".join(parts)
- 
+
     # 4. Section keyword scan
     for key, sec_data in _sections().items():
         kws = (sec_data.get("keywords_en") or []) + (sec_data.get("keywords_te") or [])
@@ -435,20 +476,21 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
             out = _format_section(key, q, lang)
             if out:
                 return out.strip()
- 
+
     # 5. AI fallback (last resort — DB had nothing)
     if _has_ai_keys():
-        return _ai_fallback(message, lang, get_college_context())
- 
+        return _ai_fallback(message, lang)
+
     return None
- 
- 
+
+
 def get_college_context() -> str:
+    """Full context — used only by router.py when college_service returns None."""
     if _get_context:
         try:
             ctx = _get_context()
             if ctx:
-                return ctx
+                return ctx[:2000]   # cap to prevent AI padding
         except Exception:
             pass
     m   = _meta()
@@ -474,7 +516,6 @@ def get_college_context() -> str:
         f"Hostel: Available, ₹60,000/year\n"
         f"Placements 2026: 329 selected from 362 across 9 companies\n"
     )
- 
- 
+
+
 __all__ = ["COLLEGE_KEYWORDS", "get_college_answer", "get_college_context"]
- 
