@@ -388,8 +388,6 @@ def _call_gnews(
     sep = "=" * 60
     print(f"\n{sep}", file=sys.stderr)
     print(f"[NEWS DEBUG] {label}", file=sys.stderr)
-    safe = {k: v for k, v in params.items() if k != "token"}
-    print(f"[NEWS DEBUG] Params      : {safe}", file=sys.stderr)
 
     if not _GNEWS_KEY:
         print(f"[NEWS DEBUG] API Key     : MISSING", file=sys.stderr)
@@ -400,25 +398,45 @@ def _call_gnews(
     print(f"[NEWS DEBUG] API Key     : SET (len={len(_GNEWS_KEY)})", file=sys.stderr)
 
     try:
+        full_url = f"https://gnews.io/api/v4/{endpoint}"
+        safe_qs  = "&".join(f"{k}={v}" for k, v in params.items() if k != "token")
+        print(f"[NEWS DEBUG] Full URL    : {full_url}?{safe_qs}&token=***", file=sys.stderr)
+        print(f"[NEWS DEBUG] Params      : { {k: v for k, v in params.items() if k != 'token'} }", file=sys.stderr)
+
         r = requests.get(
-            f"https://gnews.io/api/v4/{endpoint}",
+            full_url,
             params=params,
             timeout=8,
         )
         print(f"[NEWS DEBUG] HTTP Status : {r.status_code}", file=sys.stderr)
-        print(f"[NEWS DEBUG] Body        : {r.text[:800]}", file=sys.stderr)
+        print(f"[NEWS DEBUG] Body (1000) : {r.text[:1000]}", file=sys.stderr)
 
         if r.status_code != 200:
-            logger.error("[NEWS] %s HTTP %s — %s", label, r.status_code, r.text[:400])
-            if r.status_code in (401, 403):
-                print(f"[NEWS DEBUG] → Invalid/unauthorized key", file=sys.stderr)
+            logger.error("[NEWS] %s HTTP %s — %s", label, r.status_code, r.text[:1000])
+
+            if r.status_code == 400:
+                print(f"[NEWS DEBUG] → 400 Bad Request — FULL BODY:", file=sys.stderr)
+                print(f"[NEWS DEBUG]   {r.text}", file=sys.stderr)
+                print(f"{sep}\n", file=sys.stderr)
+                return None, f"{_ERR_API_FAILURE} (HTTP 400 — {r.text[:200]})"
+
+            if r.status_code == 401:
+                print(f"[NEWS DEBUG] → 401 Invalid API Key — the token is wrong or expired", file=sys.stderr)
                 print(f"{sep}\n", file=sys.stderr)
                 return None, _ERR_INVALID_KEY
+
+            if r.status_code == 403:
+                print(f"[NEWS DEBUG] → 403 Plan restriction or access denied — your GNews plan may not support /search", file=sys.stderr)
+                print(f"[NEWS DEBUG]   Full body: {r.text}", file=sys.stderr)
+                print(f"{sep}\n", file=sys.stderr)
+                return None, f"{_ERR_INVALID_KEY} (403 — plan restriction or access denied)"
+
             if r.status_code == 429:
-                print(f"[NEWS DEBUG] → Rate limit (429)", file=sys.stderr)
+                print(f"[NEWS DEBUG] → 429 Rate limit reached — daily/hourly quota exceeded", file=sys.stderr)
                 print(f"{sep}\n", file=sys.stderr)
                 return None, "RATE_LIMIT"
-            print(f"[NEWS DEBUG] → HTTP error {r.status_code}", file=sys.stderr)
+
+            print(f"[NEWS DEBUG] → HTTP error {r.status_code} — body: {r.text[:500]}", file=sys.stderr)
             print(f"{sep}\n", file=sys.stderr)
             return None, f"{_ERR_API_FAILURE} (HTTP {r.status_code})"
 
@@ -434,7 +452,7 @@ def _call_gnews(
 
         if "errors" in data:
             errs = "; ".join(str(e) for e in data["errors"])
-            print(f"[NEWS DEBUG] → API errors: {errs}", file=sys.stderr)
+            print(f"[NEWS DEBUG] → API errors field: {data['errors']}", file=sys.stderr)
             print(f"{sep}\n", file=sys.stderr)
             logger.error("[NEWS] API errors: %s", errs)
             return None, f"{_ERR_API_FAILURE} ({errs})"
@@ -478,15 +496,37 @@ def _call_gnews(
         return None, _ERR_API_FAILURE
 
 
+# ── GNews search with fallback ────────────────────────────────────────────
+
 def _search_gnews(query: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+    """
+    GNews /search for a specific topic.
+    Tries full query first, then falls back word-by-word (longest first).
+    Returns (articles, error_or_None).
+    """
+    diag = "★" * 60
+    print(f"\n{diag}", file=sys.stderr)
+    print(f"[TOPIC SEARCH DIAGNOSIS]", file=sys.stderr)
+    print(f"  Detected topic   : {query!r}", file=sys.stderr)
+    print(f"  Selected endpoint: GNews /search  (NOT /top-headlines)", file=sys.stderr)
+    base_url = "https://gnews.io/api/v4/search"
+    display_params = f"lang=en&max=10&q={requests.utils.quote(query)}"
+    print(f"  Full URL         : {base_url}?{display_params}&token=***", file=sys.stderr)
+    print(f"  Parameters       : lang=en, max=10, q={query!r}", file=sys.stderr)
+    print(f"  API key present  : {'YES (len=' + str(len(_GNEWS_KEY)) + ')' if _GNEWS_KEY else 'NO — THIS IS THE PROBLEM'}", file=sys.stderr)
+    print(f"{diag}\n", file=sys.stderr)
+
     if not _GNEWS_KEY:
         return None, _ERR_NO_KEY
+
     params = {"token": _GNEWS_KEY, "lang": "en", "max": 10, "q": query}
     articles, err = _call_gnews("search", params, f"GNews /search q={query!r}")
+
     if err is not None:
         return None, err
     if articles:
         return articles, None
+
     # Word-by-word fallback
     words = sorted({w for w in query.split() if len(w) >= 3}, key=len, reverse=True)
     for word in words:
@@ -500,12 +540,15 @@ def _search_gnews(query: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
         if fb_articles:
             print(f"[NEWS] Fallback succeeded: {word!r}", file=sys.stderr)
             return fb_articles, None
+
     return [], None
 
 
 def _headlines_gnews(topic: str = "breaking-news") -> Tuple[Optional[List[Dict]], Optional[str]]:
+    """GNews /top-headlines for generic requests."""
     if not _GNEWS_KEY:
         return None, _ERR_NO_KEY
+
     params = {
         "token":   _GNEWS_KEY,
         "lang":    "en",
@@ -521,10 +564,6 @@ def _headlines_gnews(topic: str = "breaking-news") -> Tuple[Optional[List[Dict]]
 def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
     """
     Fetch up to 5 news articles from GNews, with caching.
-
-    Cache: serve from cache if fresh (5 min TTL).
-    Rate limit (429): serve stale cache if any exists; else show busy message.
-    router.py requires no changes.
     """
     print(f"[NEWS] fetch_news: {user_message!r}", file=sys.stderr)
 
@@ -541,6 +580,7 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
 
     # ── Specific topic → /search ──────────────────────────────────────────
     if search_query:
+        print(f"[NEWS] Specific topic → /search", file=sys.stderr)
         articles, err = _search_gnews(search_query)
 
         if err == "RATE_LIMIT":
@@ -552,19 +592,23 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
             return _make_sentinel(_ERR_RATE_LIMIT), "ERROR:RATE_LIMIT"
 
         if err is not None:
+            print(f"[NEWS] /search error: {err}", file=sys.stderr)
             return _make_sentinel(err), f"ERROR:{err}"
 
         if articles:
             filtered = _filter_articles(articles, search_query)
             if filtered:
+                print(f"[NEWS] After filter: {len(filtered)} articles", file=sys.stderr)
                 _cache_set(cache_key, filtered)
                 return filtered, "GNEWS"
+            print(f"[NEWS] All articles filtered out for {search_query!r}", file=sys.stderr)
 
         display = search_query.title()
         msg = (
             f'No recent news found about "{display}" at the moment.\n'
             f"Please try another topic or check again later."
         )
+        print(f"[NEWS] No relevant articles for {search_query!r}", file=sys.stderr)
         return _make_sentinel(msg), f"NO_RESULTS:{search_query}"
 
     # ── Generic headlines → /top-headlines ───────────────────────────────
@@ -572,23 +616,29 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
         next((k for k in _TOPIC_MAP if k in user_message.lower()), ""),
         "breaking-news",
     )
+    print(f"[NEWS] Generic → /top-headlines topic={topic!r}", file=sys.stderr)
     articles, err = _headlines_gnews(topic)
 
     if err == "RATE_LIMIT":
         stale = _CACHE.get(_cache_key("general"))
         if stale:
             stale_articles, _ = stale
+            print(f"[NEWS] 429 → serving stale cache for general", file=sys.stderr)
             return stale_articles, "GNEWS"
         return _make_sentinel(_ERR_RATE_LIMIT), "ERROR:RATE_LIMIT"
 
     if err is not None:
+        print(f"[NEWS] /top-headlines error: {err}", file=sys.stderr)
         return _make_sentinel(err), f"ERROR:{err}"
 
     if articles:
+        print(f"[NEWS] /top-headlines success: {len(articles)} articles", file=sys.stderr)
         _cache_set(cache_key, articles[:5])
         return articles[:5], "GNEWS"
 
-    return _make_sentinel("No recent news found."), "NO_RESULTS:general"
+    msg = "No recent news found."
+    print(f"[NEWS] /top-headlines zero results", file=sys.stderr)
+    return _make_sentinel(msg), "NO_RESULTS:general"
 
 
 def summarize_news(articles: List[Dict], lang: str = "en") -> str:
