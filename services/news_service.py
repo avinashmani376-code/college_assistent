@@ -26,7 +26,23 @@ print(
     file=sys.stderr,
 )
  
-# ── Topic keyword map for GNews `topic` param ─────────────────────────────
+# ── Noise words to strip when extracting a search topic ───────────────────
+_NOISE_WORDS = {
+    "latest", "today", "today's", "todays", "news", "about", "on",
+    "tell", "me", "show", "give", "current", "recent", "new",
+    "breaking", "headlines", "headline", "update", "updates",
+    "what", "is", "are", "the", "a", "an", "in", "of", "for",
+    "whats", "what's",
+}
+
+# ── Phrases that mean "general news" (no specific topic) ──────────────────
+_GENERIC_PHRASES = {
+    "latest news", "today's news", "todays news", "breaking news",
+    "top news", "top headlines", "news today", "current news",
+    "recent news", "news",
+}
+
+# ── Topic keyword map for GNews `topic` param (top-headlines only) ─────────
 _TOPIC_MAP = {
     "technology": "technology",
     "tech":       "technology",
@@ -62,9 +78,37 @@ _WHY_MATTERS = {
     "default":       "It is an important development that affects many people.",
 }
  
- 
+
+def _extract_search_query(user_message: str) -> str:
+    """
+    Strip noise words from the user message to get a clean search topic.
+    Returns an empty string if no meaningful topic remains (generic request).
+
+    Examples:
+        "Latest news about petrol"  → "petrol"
+        "Today's AI news"           → "AI"
+        "Show me business news"     → "business"
+        "Latest news"               → ""
+        "Breaking news"             → ""
+    """
+    normalized = user_message.strip().lower()
+
+    # Check if the whole message matches a generic phrase — return empty
+    if normalized in _GENERIC_PHRASES:
+        return ""
+
+    # Remove punctuation (apostrophes already handled via normalization)
+    cleaned = re.sub(r"[^\w\s]", " ", normalized)
+
+    # Split into words and filter out noise words
+    words = [w for w in cleaned.split() if w not in _NOISE_WORDS]
+
+    query = " ".join(words).strip()
+    return query
+
+
 def _detect_topic(user_message: str) -> str:
-    """Map user message to a GNews topic param."""
+    """Map user message to a GNews topic param (used for top-headlines fallback)."""
     msg = user_message.lower()
     for kw, topic in _TOPIC_MAP.items():
         if kw in msg:
@@ -119,7 +163,68 @@ def _simplify(text: str, max_sentences: int = 2, max_words: int = 40) -> str:
         short += "."
     return short
  
- 
+
+def _from_gnews_search(query: str) -> List[Dict]:
+    """
+    GNews /search endpoint — used when a specific topic is detected.
+    Returns list of {title, description, source, url, topic} dicts (max 5).
+    On failure: logs status + body, returns empty list.
+    """
+    if not _GNEWS_KEY:
+        print("[NEWS] GNews key missing — cannot fetch news", file=sys.stderr)
+        logger.error("GNews API key not set (GNEWS_API_KEY or GNEWS_API)")
+        return []
+
+    try:
+        print(f"[NEWS] GNews /search q={query!r} fetching...", file=sys.stderr)
+        r = requests.get(
+            "https://gnews.io/api/v4/search",
+            params={
+                "token": _GNEWS_KEY,
+                "lang":  "en",
+                "max":   10,
+                "q":     query,
+            },
+            timeout=5,
+        )
+        print(f"[NEWS] GNews /search status={r.status_code}", file=sys.stderr)
+
+        if r.status_code != 200:
+            body = r.text[:500]
+            print(
+                f"[NEWS] GNews /search FAILED — status={r.status_code} body={body}",
+                file=sys.stderr,
+            )
+            logger.error("GNews /search error: status=%s body=%s", r.status_code, body)
+            return []
+
+        raw = r.json().get("articles") or []
+        print(f"[NEWS] GNews /search returned {len(raw)} raw articles", file=sys.stderr)
+
+        articles = []
+        for a in raw:
+            title = (a.get("title") or "").strip()
+            if not title:
+                continue
+            articles.append({
+                "title":       title,
+                "description": (a.get("description") or "").strip(),
+                "source":      (a.get("source", {}).get("name") or "GNews").strip(),
+                "url":         (a.get("url") or "").strip(),
+                "topic":       query,
+            })
+            if len(articles) == 5:
+                break
+
+        print(f"[NEWS] GNews /search parsed {len(articles)} valid articles", file=sys.stderr)
+        return articles
+
+    except Exception as e:
+        print(f"[NEWS] GNews /search exception: {e}", file=sys.stderr)
+        logger.error("GNews /search exception: %s", e)
+        return []
+
+
 def _from_gnews(topic: str = "breaking-news") -> List[Dict]:
     """
     GNews top headlines — free plan compatible.
@@ -185,16 +290,38 @@ def _from_gnews(topic: str = "breaking-news") -> List[Dict]:
 def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
     """
     Fetch up to 5 news articles from GNews.
+
+    Decision logic:
+      - If a specific topic is detected in user_message → use /search endpoint
+      - Otherwise (generic "latest news", "breaking news", etc.) → use /top-headlines
+
     Returns (articles, provider_name).
+    If search returns no articles, returns ([], "NO_RESULTS:<topic>") so the
+    caller can show a targeted "no results" message.
     """
     print(f"[NEWS] fetch_news called: user_message={user_message!r}", file=sys.stderr)
-    topic    = _detect_topic(user_message)
-    articles = _from_gnews(topic=topic)
-    if articles:
-        print(f"[NEWS] SUCCESS: {len(articles)} articles from GNEWS", file=sys.stderr)
-        return articles, "GNEWS"
-    print("[NEWS] GNews returned no articles", file=sys.stderr)
-    return [], "NONE"
+
+    search_query = _extract_search_query(user_message)
+
+    if search_query:
+        # Specific topic detected — use search endpoint
+        print(f"[NEWS] Topic detected: {search_query!r} → using /search", file=sys.stderr)
+        articles = _from_gnews_search(search_query)
+        if articles:
+            print(f"[NEWS] SUCCESS: {len(articles)} articles from GNEWS /search", file=sys.stderr)
+            return articles, "GNEWS"
+        print(f"[NEWS] GNews /search returned no articles for {search_query!r}", file=sys.stderr)
+        return [], f"NO_RESULTS:{search_query}"
+    else:
+        # Generic request — use top-headlines
+        topic = _detect_topic(user_message)
+        print(f"[NEWS] No specific topic — using /top-headlines topic={topic!r}", file=sys.stderr)
+        articles = _from_gnews(topic=topic)
+        if articles:
+            print(f"[NEWS] SUCCESS: {len(articles)} articles from GNEWS /top-headlines", file=sys.stderr)
+            return articles, "GNEWS"
+        print("[NEWS] GNews /top-headlines returned no articles", file=sys.stderr)
+        return [], "NONE"
  
  
 def summarize_news(articles: List[Dict], lang: str = "en") -> str:
@@ -225,7 +352,6 @@ def summarize_news(articles: List[Dict], lang: str = "en") -> str:
  
         what_happened = _simplify(desc, max_sentences=3, max_words=50)
         if not what_happened:
-            # Fall back to a cleaned version of the title
             what_happened = _simplify(title, max_sentences=1, max_words=25)
  
         why = _why_matters(title, desc, topic)
@@ -243,4 +369,17 @@ def summarize_news(articles: List[Dict], lang: str = "en") -> str:
  
     header = "📰 తాజా వార్తలు\n\n" if lang == "te" else "📰 Latest News\n\n"
     return header + "\n\n─────────────\n\n".join(blocks)
- 
+
+
+def format_news_response(articles: List[Dict], provider: str, lang: str = "en") -> str:
+    """
+    Wrapper that handles the NO_RESULTS sentinel from fetch_news.
+    Use this instead of calling summarize_news directly when you have
+    the (articles, provider) tuple from fetch_news.
+
+    Returns "No recent news found for '<topic>'." when search has no results.
+    """
+    if not articles and provider.startswith("NO_RESULTS:"):
+        topic = provider.split("NO_RESULTS:", 1)[1]
+        return f"No recent news found for '{topic}'."
+    return summarize_news(articles, lang=lang)
