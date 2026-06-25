@@ -1,14 +1,11 @@
+
 # services/news_service.py
 """
-News service — NewsData.io (free) → GNews → NewsAPI.
+News service — NewsData.io ONLY.
+No fallback providers.
 Direct fetch, NO AI, NO Tavily.
  
-Root causes fixed:
-1. Key name mismatch: .env has NEWSDATA_API, code was reading NEWS_DATA_API
-   → now reads BOTH names
-2. Free NewsData.io key (pub_...) cannot use ?q= search on /api/1/news
-   → uses /api/1/latest-news endpoint (free plan compatible)
-3. Added full debug logging to every step
+On failure: logs status code + response body, returns failure message.
 """
 import os
 import sys
@@ -18,53 +15,53 @@ from typing import List, Dict, Tuple
  
 logger = logging.getLogger(__name__)
  
-# ── Key loading — read every possible env var name ─────────────────────────
-# .env file uses:    NEWSDATA_API
-# render.yaml uses:  NEWS_DATA_API
-# code also checks:  NEWSDATA_API_KEY  (just in case)
+# Read every possible env var name for NewsData key
 _ND_KEY = (
-    os.getenv("NEWSDATA_API",     "")  # matches .env file exactly
-    or os.getenv("NEWS_DATA_API", "")  # matches render.yaml
+    os.getenv("NEWSDATA_API",     "")   # matches .env file
+    or os.getenv("NEWS_DATA_API", "")   # matches render.yaml
     or os.getenv("NEWSDATA_API_KEY", "")
 )
-GNEWS_API    = os.getenv("GNEWS_API",    "")
-NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
  
 print(f"[NEWS] Key status at startup: "
-      f"NewsData={'SET' if _ND_KEY else 'MISSING'} "
-      f"GNews={'SET' if GNEWS_API else 'MISSING'} "
-      f"NewsAPI={'SET' if NEWS_API_KEY else 'MISSING'}",
+      f"NewsData={'SET' if _ND_KEY else 'MISSING'}",
       file=sys.stderr)
  
  
-def _from_newsdata_free(category: str = "top") -> List[Dict]:
+def _from_newsdata() -> List[Dict]:
     """
-    NewsData.io FREE plan — uses /api/1/latest-news (no ?q= param needed).
-    Free keys (pub_...) CANNOT use the /api/1/news search endpoint.
+    NewsData.io FREE plan — /api/1/latest-news (no ?q= needed).
+    Returns list of {title, url, source} dicts.
+    On any failure: logs status + body, returns empty list.
     """
     if not _ND_KEY:
-        print("[NEWS] NewsData key missing — skipping", file=sys.stderr)
+        print("[NEWS] NewsData key missing — cannot fetch news", file=sys.stderr)
+        logger.error("NewsData API key not set")
         return []
+ 
     try:
-        print(f"[NEWS] NewsData.io /latest-news category={category!r}", file=sys.stderr)
+        print("[NEWS] NewsData.io /latest-news fetching...", file=sys.stderr)
         r = requests.get(
             "https://newsdata.io/api/1/latest-news",
             params={
                 "apikey":   _ND_KEY,
                 "language": "en",
-                "country":  "in",      # India news by default
+                "country":  "in",
             },
             timeout=12,
         )
         print(f"[NEWS] NewsData status={r.status_code}", file=sys.stderr)
+ 
         if r.status_code != 200:
-            err = r.text[:300]
-            print(f"[NEWS] NewsData error body: {err}", file=sys.stderr)
-            logger.warning("NewsData returned %s: %s", r.status_code, err)
+            body = r.text[:500]
+            print(f"[NEWS] NewsData FAILED — status={r.status_code} body={body}",
+                  file=sys.stderr)
+            logger.error("NewsData error: status=%s body=%s", r.status_code, body)
             return []
+ 
         results = r.json().get("results") or []
         print(f"[NEWS] NewsData returned {len(results)} articles", file=sys.stderr)
-        return [
+ 
+        articles = [
             {
                 "title":  (a.get("title")     or "").strip(),
                 "url":    (a.get("link")      or "").strip(),
@@ -73,116 +70,35 @@ def _from_newsdata_free(category: str = "top") -> List[Dict]:
             for a in results
             if (a.get("title") or "").strip()
         ][:8]
+ 
+        print(f"[NEWS] Parsed {len(articles)} valid articles", file=sys.stderr)
+        return articles
+ 
     except Exception as e:
         print(f"[NEWS] NewsData exception: {e}", file=sys.stderr)
-        logger.warning("NewsData exception: %s", e)
-        return []
- 
- 
-def _from_gnews(topic: str = "india") -> List[Dict]:
-    """GNews fallback — works with free key."""
-    if not GNEWS_API:
-        print("[NEWS] GNews key missing — skipping", file=sys.stderr)
-        return []
-    try:
-        print(f"[NEWS] GNews topic={topic!r}", file=sys.stderr)
-        r = requests.get(
-            "https://gnews.io/api/v4/top-headlines",
-            params={
-                "token":    GNEWS_API,
-                "lang":     "en",
-                "country":  "in",
-                "max":      8,
-                "topic":    "breaking-news",
-            },
-            timeout=12,
-        )
-        print(f"[NEWS] GNews status={r.status_code}", file=sys.stderr)
-        if r.status_code != 200:
-            print(f"[NEWS] GNews error: {r.text[:200]}", file=sys.stderr)
-            return []
-        articles = r.json().get("articles") or []
-        print(f"[NEWS] GNews returned {len(articles)} articles", file=sys.stderr)
-        return [
-            {
-                "title":  (a.get("title") or "").strip(),
-                "url":    (a.get("url")   or "").strip(),
-                "source": (a.get("source", {}).get("name") or "GNews").strip(),
-            }
-            for a in articles
-            if (a.get("title") or "").strip()
-        ]
-    except Exception as e:
-        print(f"[NEWS] GNews exception: {e}", file=sys.stderr)
-        return []
- 
- 
-def _from_newsapi(query: str = "india") -> List[Dict]:
-    """NewsAPI.org fallback."""
-    if not NEWS_API_KEY:
-        print("[NEWS] NewsAPI key missing — skipping", file=sys.stderr)
-        return []
-    try:
-        print(f"[NEWS] NewsAPI.org query={query!r}", file=sys.stderr)
-        r = requests.get(
-            "https://newsapi.org/v2/top-headlines",
-            params={
-                "country":  "in",
-                "pageSize": 8,
-                "apiKey":   NEWS_API_KEY,
-            },
-            timeout=12,
-        )
-        print(f"[NEWS] NewsAPI status={r.status_code}", file=sys.stderr)
-        if r.status_code != 200:
-            print(f"[NEWS] NewsAPI error: {r.text[:200]}", file=sys.stderr)
-            return []
-        articles = r.json().get("articles") or []
-        print(f"[NEWS] NewsAPI returned {len(articles)} articles", file=sys.stderr)
-        return [
-            {
-                "title":  (a.get("title") or "").strip(),
-                "url":    (a.get("url")   or "").strip(),
-                "source": (a.get("source", {}).get("name") or "NewsAPI").strip(),
-            }
-            for a in articles
-            if (a.get("title") or "").strip()
-               and "[Removed]" not in (a.get("title") or "")
-        ]
-    except Exception as e:
-        print(f"[NEWS] NewsAPI exception: {e}", file=sys.stderr)
+        logger.error("NewsData exception: %s", e)
         return []
  
  
 def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
     """
-    Try providers in order. Returns (articles, provider_name).
-    Always fetches top/latest headlines — no query search (free plan).
+    Fetch news from NewsData.io only.
+    Returns (articles, provider_name).
     """
     print(f"[NEWS] fetch_news called: user_message={user_message!r}", file=sys.stderr)
- 
-    for fn, name, arg in [
-        (_from_newsdata_free, "NEWSDATA", "top"),
-        (_from_gnews,         "GNEWS",    "india"),
-        (_from_newsapi,       "NEWSAPI",  "india"),
-    ]:
-        try:
-            articles = fn(arg)
-            if articles:
-                print(f"[NEWS] SUCCESS via {name}: {len(articles)} articles", file=sys.stderr)
-                return articles, name
-        except Exception as e:
-            print(f"[NEWS] Provider {name} crashed: {e}", file=sys.stderr)
- 
-    print("[NEWS] ALL providers failed", file=sys.stderr)
+    articles = _from_newsdata()
+    if articles:
+        print(f"[NEWS] SUCCESS: {len(articles)} articles from NEWSDATA", file=sys.stderr)
+        return articles, "NEWSDATA"
+    print("[NEWS] NewsData returned no articles", file=sys.stderr)
     return [], "NONE"
  
  
 def summarize_news(articles: List[Dict], lang: str = "en") -> str:
     if not articles:
         if lang == "te":
-            return "వార్తలు ఇప్పుడు అందుబాటులో లేవు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
-        return "No news available right now. Please try again later."
+            return "తాజా వార్తలు తీసుకోవడం సాధ్యం కాలేదు. దయచేసి కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
+        return "Unable to fetch the latest news. Please try again later."
  
     header = "📰 తాజా వార్తలు:\n" if lang == "te" else "📰 Latest News:\n"
     lines  = [header]

@@ -1,7 +1,7 @@
 # services/llm_service.py
 """
-SHORT MODE (default): 1 sentence. max_tokens=80.
-DETAILED MODE: full answer. max_tokens=500.
+SHORT MODE (default): 1-2 sentences max. max_tokens=100.
+DETAILED MODE: full answer (only when user says "explain", "details", etc.). max_tokens=500.
 All debug logs go to stderr (visible in Render logs).
 """
 import os
@@ -38,22 +38,24 @@ _COLLEGE_TE = (
     "** లేదా ## వాడకండి."
 )
  
+# Default: 1-2 sentences, no padding, no elaboration
 _SHORT_EN = (
     "You are IDEAL AI — a concise, factual assistant.\n"
-    "RULE: Answer in exactly ONE sentence. Stop after that sentence.\n"
-    "Do NOT explain, expand, or add examples unless asked.\n"
+    "STRICT RULE: Answer in 1 to 2 sentences maximum. Stop immediately after.\n"
+    "Do NOT explain further, do NOT add examples, do NOT pad the answer.\n"
     "Do NOT use ** or ## symbols.\n"
     "Examples:\n"
-    '"Who is Narendra Modi?" → "Narendra Modi is the Prime Minister of India."\n'
     '"What is AI?" → "Artificial Intelligence (AI) enables computers to perform tasks that normally require human intelligence."\n'
-    '"Who is AP CM?" → "N. Chandrababu Naidu is the Chief Minister of Andhra Pradesh."'
+    '"Who is Narendra Modi?" → "Narendra Modi is the Prime Minister of India."\n'
+    '"Who is Elon Musk?" → "Elon Musk is a tech entrepreneur and CEO of Tesla and SpaceX."'
 )
 _SHORT_TE = (
     "మీరు IDEAL AI — సంక్షిప్త assistant.\n"
-    "నియమం: ఒక్క వాక్యంలో మాత్రమే సమాధానం ఇవ్వండి.\n"
+    "నియమం: గరిష్టంగా 1-2 వాక్యాలలో మాత్రమే సమాధానం ఇవ్వండి. తర్వాత ఆపండి.\n"
     "** లేదా ## వాడకండి."
 )
  
+# Detailed: only when user explicitly asks
 _DETAIL_EN = (
     "You are IDEAL AI — a helpful teacher for students.\n"
     "Give a clear, thorough explanation using simple language.\n"
@@ -89,24 +91,25 @@ def _build(prompt, history, lang, context, mode, detailed):
 def _call_groq(msgs, detailed: bool) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
-    max_tok = 500 if detailed else 80   # 80 tokens ≈ 1 sentence hard cap
+    # Short: 100 tokens = ~1-2 sentences; Detailed: 500 tokens = full explanation
+    max_tok = 500 if detailed else 100
     print(f"[AI] Groq: model={GROQ_MODEL} max_tokens={max_tok}", file=sys.stderr)
     client = Groq(api_key=GROQ_API_KEY)
     res = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=msgs,
-        temperature=0.1,          # very low = more deterministic/concise
+        temperature=0.1,
         max_tokens=max_tok,
     )
     reply = (res.choices[0].message.content or "").strip()
-    print(f"[AI] Groq reply ({len(reply)} chars): {reply[:100]}", file=sys.stderr)
+    print(f"[AI] Groq reply ({len(reply)} chars): {reply[:120]}", file=sys.stderr)
     return reply
  
  
 def _call_openrouter(msgs, detailed: bool) -> str:
     if not OPEN_ROUTER_API:
         raise RuntimeError("OPEN_ROUTER_API not set")
-    max_tok = 500 if detailed else 80
+    max_tok = 500 if detailed else 100
     print(f"[AI] OpenRouter: model={OPENROUTER_MODEL} max_tokens={max_tok}", file=sys.stderr)
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPEN_ROUTER_API)
     res = client.chat.completions.create(
@@ -127,9 +130,11 @@ def query_ai(
     detailed: bool = False,
 ) -> str:
     """
+    Single AI call per user query. No retries beyond provider fallback.
+ 
     mode    : "college" → strict 1-sentence using context only
-              "general" → short factual answer (default)
-    detailed: True → full explanation (only when user says "explain more" etc.)
+              "general" → 1-2 sentence factual answer (default)
+    detailed: True → full explanation (only when user explicitly requests it)
     """
     print(f"[AI] query_ai: mode={mode} lang={lang} detailed={detailed} "
           f"prompt={prompt[:60]!r}", file=sys.stderr)
@@ -147,3 +152,4 @@ def query_ai(
             if lang == "te":
                 return "AI సేవలు ఇప్పుడు అందుబాటులో లేవు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
             return "AI services are unavailable right now. Please try again in a moment."
+ 

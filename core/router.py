@@ -5,22 +5,24 @@ core/router.py
 Routing:
   college → DB → (AI only if DB misses)
   weather → weather_service
-  news    → news_service  (NO Tavily, NO AI)
-  search/general → smart: Groq direct for static facts, Tavily only for fresh info
+  news    → news_service (NewsData only, NO Tavily, NO AI)
+  search/general → Route A (Groq direct) or Route B (Tavily → Groq)
+                   Decision made ONCE via _needs_tavily(), ONE AI call total.
  
-Smart Tavily logic:
-  "What is AI?" "Who is Narendra Modi?" → Groq directly (fast, no web call)
-  "Who is AP CM?" "Latest events" → Tavily → Groq
+Route A (Fast — Groq direct, no web):
+  "What is AI?", "Who is Elon Musk?", "Explain Python" → stable knowledge
+ 
+Route B (Search — Tavily → Groq):
+  "Latest AI news", "Bitcoin price today", "Who won IPL today?" → current info
 """
 import sys
 import logging
 from flask import Blueprint, request, jsonify
  
-from core.intent import classify_intent, detect_language, is_detail_request
+from core.intent import classify_intent, detect_language, is_detail_request, is_static_knowledge
 from services.college_service import get_college_answer, get_college_context
 from services.weather_service import get_weather
 from services.news_service import fetch_news, summarize_news
-from services.search_service import search_and_format
 from services.llm_service import query_ai
 from services.memory_service import save_memory, get_recent_context, save_admission
 from services.tavily_service import search_and_get_context
@@ -39,79 +41,6 @@ BASE = {
     "source":      "",
 }
  
-# ── Static knowledge: Groq already knows these — no Tavily needed ──────────
-_STATIC_TRIGGERS = [
-    "what is", "what are", "define", "meaning of",
-    "explain what", "what does", "explain", "describe",
-]
- 
-_KNOWN_STATIC = [
-    # Technology
-    "ai", "artificial intelligence", "machine learning", "deep learning",
-    "neural network", "blockchain", "cloud computing", "internet of things",
-    "python", "java", "javascript", "html", "css", "sql", "database",
-    "algorithm", "data structure", "operating system", "computer",
-    "programming", "software", "hardware", "internet", "network",
-    "cybersecurity", "encryption", "virus", "malware", "api", "oop",
-    "big data", "data science", "computer vision", "nlp",
-    # Science
-    "solar system", "photosynthesis", "gravity", "atom", "dna",
-    "evolution", "relativity", "quantum", "black hole", "galaxy",
-    "electricity", "magnetism", "thermodynamics", "cell", "genetics",
-    # Social
-    "democracy", "communism", "capitalism", "economics", "constitution",
-    "parliament", "judiciary", "globalization", "inflation", "gdp",
-]
- 
-_FAMOUS_PEOPLE = [
-    "narendra modi", "elon musk", "bill gates", "steve jobs",
-    "mark zuckerberg", "jeff bezos", "warren buffett",
-    "mahatma gandhi", "jawaharlal nehru", "subhas chandra bose",
-    "albert einstein", "isaac newton", "nikola tesla", "thomas edison",
-    "shakespeare", "napoleon", "abraham lincoln", "winston churchill",
-    "sachin tendulkar", "virat kohli", "ms dhoni", "rohit sharma",
-    "amitabh bachchan", "shah rukh khan",
-    "apj abdul kalam", "rabindranath tagore", "swami vivekananda",
-    "aryabhatta", "chanakya", "dr ambedkar", "br ambedkar",
-    "srinivasa ramanujan", "cv raman",
-]
- 
-# Real-time triggers → always use Tavily
-_REALTIME_TRIGGERS = [
-    "today", "current", "latest", "recent", "now",
-    "2024", "2025", "2026",
-    "who is cm", "who is pm", "who is president", "who is ceo",
-    "who is ap cm", "who is telangana cm", "who is governor",
-    "who is minister", "stock", "price", "rate", "score",
-    "match result", "election result",
-]
- 
- 
-def _needs_tavily(question: str) -> bool:
-    """
-    Returns True only if fresh web data is actually needed.
-    Static facts → False (use Groq directly, faster).
-    Real-time/current info → True (use Tavily).
-    """
-    q = question.lower().strip()
- 
-    # Explicit real-time signals → always Tavily
-    if any(r in q for r in _REALTIME_TRIGGERS):
-        return True
- 
-    # "what is X" / "explain X" with known entity → skip Tavily
-    is_static_q = any(t in q for t in _STATIC_TRIGGERS)
-    is_known    = any(e in q for e in _KNOWN_STATIC)
-    if is_static_q and is_known:
-        return False
- 
-    # "who is [famous person]" → Groq knows them, skip Tavily
-    if ("who is" in q or "who was" in q) and any(p in q for p in _FAMOUS_PEOPLE):
-        return False
- 
-    # Default: use Tavily for unknown queries
-    return True
- 
  
 def _sid(req) -> str:
     return req.remote_addr or "default"
@@ -125,17 +54,17 @@ def _empty(text: str) -> bool:
  
 def _general_answer(user_message: str, history, lang: str, detailed: bool) -> str:
     """
-    Smart routing:
-    - Static knowledge questions → Groq directly (fast, no web call)
-    - Fresh/current questions → Tavily → Groq
-    ONE AI call total.
+    ONE AI call total. No duplicate searches.
+ 
+    Route A: static knowledge → Groq directly (fast).
+    Route B: current/fresh info → Tavily context → Groq once.
     """
-    use_tavily = _needs_tavily(user_message)
+    use_tavily = not is_static_knowledge(user_message)
     print(f"[SEARCH] needs_tavily={use_tavily} for: {user_message!r}", file=sys.stderr)
  
+    # ── Route A: Groq direct — no web call ───────────────────────────────
     if not use_tavily:
-        # ── Path A: Groq direct (no web search) ───────────────────────────
-        print("[SEARCH] Path A: Groq direct (static knowledge)", file=sys.stderr)
+        print("[SEARCH] Route A: Groq direct (static knowledge)", file=sys.stderr)
         return query_ai(
             prompt=user_message,
             history=history,
@@ -144,8 +73,8 @@ def _general_answer(user_message: str, history, lang: str, detailed: bool) -> st
             detailed=detailed,
         )
  
-    # ── Path B: Tavily → Groq ─────────────────────────────────────────────
-    print("[SEARCH] Path B: Tavily → Groq", file=sys.stderr)
+    # ── Route B: Tavily → Groq (ONE call) ────────────────────────────────
+    print("[SEARCH] Route B: Tavily → Groq", file=sys.stderr)
     ctx = search_and_get_context(user_message, max_results=3)
  
     if ctx:
@@ -159,34 +88,16 @@ def _general_answer(user_message: str, history, lang: str, detailed: bool) -> st
         else:
             prompt = (
                 f"Question: {user_message}\n\nSearch results:\n{ctx}\n\n"
-                + ("Explain thoroughly based on above."
-                   if detailed else "Answer in one sentence only.")
+                + ("Explain thoroughly based on above." if detailed
+                   else "Answer in one or two sentences only.")
             )
         return query_ai(
             prompt=prompt, history=history, lang=lang,
             mode="general", detailed=detailed,
         )
  
-    # ── Path B fallback: Wikipedia/DDG ────────────────────────────────────
-    print("[SEARCH] Tavily empty — trying Wikipedia/DDG", file=sys.stderr)
-    web = search_and_format(user_message, lang=lang)
- 
-    if not _empty(web):
-        print(f"[SEARCH] Wikipedia/DDG returned {len(web)} chars", file=sys.stderr)
-        if not detailed and len(web) > 250:
-            # Compress long Wikipedia text to 1 sentence
-            prompt = (
-                f"Question: {user_message}\n\nContext:\n{web}\n\n"
-                "Answer in one sentence only."
-            )
-            return query_ai(
-                prompt=prompt, history=history, lang=lang,
-                mode="general", detailed=False,
-            )
-        return web
- 
-    # ── Final fallback: pure Groq ─────────────────────────────────────────
-    print("[SEARCH] All web sources empty — pure Groq", file=sys.stderr)
+    # ── Route B fallback: pure Groq (Tavily returned nothing) ────────────
+    print("[SEARCH] Tavily empty — fallback to pure Groq", file=sys.stderr)
     return query_ai(
         prompt=user_message, history=history, lang=lang,
         mode="general", detailed=detailed,
@@ -236,7 +147,7 @@ def api_chat():
             save_memory(user_message, reply, intent="weather", lang=lang, session_id=session_id)
             return jsonify({**BASE, "reply": reply})
  
-        # ── NEWS — direct fetch, NO AI, NO Tavily ──────────────────────────
+        # ── NEWS — NewsData only, NO AI, NO Tavily ─────────────────────────
         if intent == "news":
             print("[ROUTE] → news", file=sys.stderr)
             articles, provider = fetch_news(user_message)
@@ -260,7 +171,7 @@ def api_chat():
             save_memory(user_message, reply, intent="college", lang=lang, session_id=session_id)
             return jsonify({**BASE, "reply": reply})
  
-        # ── SEARCH / GENERAL ───────────────────────────────────────────────
+        # ── SEARCH / GENERAL — ONE AI call total ───────────────────────────
         print(f"[ROUTE] → {intent}", file=sys.stderr)
         reply = _general_answer(user_message, history, lang, detailed)
         save_memory(user_message, reply, intent=intent, lang=lang, session_id=session_id)
@@ -305,7 +216,7 @@ def api_apply():
         errors = {}
         if not name:
             errors["name"] = "Name is required."
-        if not phone or not phone.replace("+","").replace("-","").replace(" ","").isdigit():
+        if not phone or not phone.replace("+", "").replace("-", "").replace(" ", "").isdigit():
             errors["phone"] = "Valid phone number is required."
         if not course:
             errors["course"] = "Course selection is required."
