@@ -1,4 +1,3 @@
- services/news_service.py
 """
 News service — GNews API ONLY.
 No fallback providers.
