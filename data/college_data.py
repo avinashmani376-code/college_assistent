@@ -13,6 +13,37 @@ COLLEGE_KEYWORDS = [
 ]
 
 # =====================================================
+# SYSTEM INFORMATION
+# =====================================================
+# Structured data ONLY — no hardcoded answer sentences.
+# college_service.py builds ALL responses dynamically from this dict.
+# To update developer info, roles, or ownership: edit ONLY this block.
+# The service will automatically use the new values everywhere.
+SYSTEM_INFORMATION = {
+    "project_name": "Ideal College AI Assistant",
+    "version":      "2.0",
+    "system_type":  "AI-powered College Assistant Chatbot",
+    "institution":  "Ideal College of Arts & Science",
+    "ownership":    "Developed exclusively for Ideal College of Arts & Science.",
+
+    # ── Developer list — order matters: index 0 = lead, rest = assistants ──
+    # Add, rename, or remove entries here.
+    # The service reads this list; no names appear anywhere else in the code.
+    "developers": [
+        {
+            "name":         "Avinash Mani",
+            "role":         "Lead Developer & System Architect",
+            "contribution": "designed and developed",
+        },
+        {
+            "name":         "Pavan Kumar",
+            "role":         "Assistant Developer",
+            "contribution": "development assistance",
+        },
+    ],
+}
+
+# =====================================================
 # MAIN COLLEGE DATABASE
 # =====================================================
 COLLEGE_DATABASE = {
@@ -352,6 +383,54 @@ COLLEGE_DATABASE = {
                     "courses": "UG & PG courses in Computers, BBA, Agriculture, Food Technology & Fisheries."
                 }
             }
+        },
+
+        "system_information": {
+            # ── English triggers ──────────────────────────────────────────
+            "keywords_en": [
+                # Generic developer questions
+                "who developed", "who created", "who built", "who designed",
+                "who made", "who is developer", "who is the developer",
+                "who is behind", "who wrote this",
+                # Role-specific
+                "lead developer", "assistant developer",
+                "chatbot developer", "ai developer",
+                # Phrased as "X this"
+                "who developed this", "who made this", "who built this",
+                "who created this", "who designed this",
+                # Phrased as "X by"
+                "developed by", "created by", "built by", "designed by",
+                # Phrased as "X software / project / chatbot"
+                "who developed this software", "who created this project",
+                "who made this chatbot", "who developed this ai",
+                # Team / project info
+                "development team", "project developers",
+                "system developers", "ai developers",
+                "tell me about the developers",
+                # Version / project
+                "version", "which version", "ai version", "chatbot version",
+                "project name", "system type",
+            ],
+            # ── Telugu triggers ───────────────────────────────────────────
+            "keywords_te": [
+                # Generic
+                "ఎవరు తయారు చేశారు", "ఎవరు డెవలప్ చేశారు",
+                "ఎవరు డిజైన్ చేశారు", "ఎవరు నిర్మించారు",
+                "ఎవరు రూపొందించారు",
+                # Role-specific
+                "డెవలపర్", "లీడ్ డెవలపర్", "అసిస్టెంట్ డెవలపర్",
+                # Phrased with "ఈ X"
+                "ఈ ai ని ఎవరు తయారు చేశారు",
+                "ఈ చాట్‌బాట్‌ను ఎవరు తయారు చేశారు",
+                "ఈ సిస్టమ్‌ను ఎవరు డెవలప్ చేశారు",
+                "ఈ ai ని ఎవరు డిజైన్ చేశారు",
+                # Name questions (populated dynamically by service, listed here for DB scan)
+                "అవినాష్", "అవినాష్ మణి",
+                "పవన్", "పవన్ కుమార్",
+            ],
+            # data is intentionally empty — college_service builds all
+            # responses dynamically from SYSTEM_INFORMATION above.
+            "data": {}
         }
     }
 }

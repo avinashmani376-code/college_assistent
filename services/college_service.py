@@ -25,11 +25,25 @@ TRIGGER_WORDS = [
     "director", "academic director", "administrative director",
     "ranjith", "vasu", "satyanarayana", "kama raju",
     "కళాశాల", "కాలేజీ", "ఐడియల్",
+    # Developer / system questions
+    "developed", "developer", "created", "built", "designed", "made this",
+    "avinash", "pavan kumar", "pavan", "who made", "chatbot", "this ai",
+    "this system", "development team", "project developers", "system developers",
+    "ai developers", "this software", "this project",
+    # Telugu developer questions
+    "డెవలపర్", "లీడ్ డెవలపర్", "అసిస్టెంట్ డెవలపర్",
+    "అవినాష్", "పవన్",
 ]
 
 _EXTRA_GATE_WORDS = [
     "director", "ranjith", "vasu", "satyanarayana", "kama raju",
     "academic", "administrative", "exam incharge",
+    # Developer / system questions
+    "developer", "developed", "avinash", "pavan", "created by", "built by",
+    "designed by", "who made", "who built", "who created", "who designed",
+    "who developed", "chatbot developer", "ai developer", "development team",
+    "project developers", "system developers", "ai developers",
+    "tell me about the developer", "who wrote this", "who is behind",
 ]
 
 
@@ -293,8 +307,209 @@ def _resolve_section(q: str):
     return None
 
 
+# ── Developer / system question detection ────────────────────────────────
+# These are GENERIC action/role phrases — no developer names here.
+# Names are loaded dynamically from SYSTEM_INFORMATION at runtime.
+_DEV_TRIGGERS_EN = frozenset([
+    # Generic "who X" questions
+    "who developed", "who created", "who built", "who designed", "who made",
+    "who is developer", "who is the developer", "who is behind", "who wrote this",
+    # Role-specific
+    "lead developer", "assistant developer",
+    "chatbot developer", "ai developer",
+    # "X this" variants
+    "who developed this", "who made this", "who built this",
+    "who created this", "who designed this",
+    # "X by" variants
+    "developed by", "created by", "built by", "designed by",
+    # "X software / project / chatbot"
+    "who developed this software", "who created this project",
+    "who made this chatbot", "who developed this ai",
+    # Team / project
+    "development team", "project developers",
+    "system developers", "ai developers",
+    "tell me about the developers",
+])
+
+_DEV_TRIGGERS_TE = frozenset([
+    "ఎవరు తయారు చేశారు", "ఎవరు డెవలప్ చేశారు",
+    "ఎవరు డిజైన్ చేశారు", "ఎవరు నిర్మించారు",
+    "ఎవరు రూపొందించారు",
+    "డెవలపర్", "లీడ్ డెవలపర్", "అసిస్టెంట్ డెవలపర్",
+    "ఈ ai ని ఎవరు తయారు చేశారు",
+    "ఈ చాట్‌బాట్‌ను ఎవరు తయారు చేశారు",
+    "ఈ సిస్టమ్‌ను ఎవరు డెవలప్ చేశారు",
+    "ఈ ai ని ఎవరు డిజైన్ చేశారు",
+    "అవినాష్", "అవినాష్ మణి",
+    "పవన్", "పవన్ కుమార్",
+])
+
+# Cache: populated once at first call from SYSTEM_INFORMATION.
+# Holds lowercase word fragments of every developer's name.
+# Never hardcoded here — always built from SYSTEM_INFORMATION.
+_DEV_NAME_CACHE: list = []
+
+
+def _load_dev_names() -> list:
+    """Return lowercase name fragments from SYSTEM_INFORMATION (cached)."""
+    global _DEV_NAME_CACHE
+    if _DEV_NAME_CACHE:
+        return _DEV_NAME_CACHE
+    try:
+        from data.college_data import SYSTEM_INFORMATION
+        _DEV_NAME_CACHE = [
+            word.lower()
+            for dev in SYSTEM_INFORMATION.get("developers", [])
+            for word in dev.get("name", "").split()
+            if len(word) > 2
+        ]
+    except Exception:
+        pass
+    return _DEV_NAME_CACHE
+
+
+def _is_system_question(q: str) -> bool:
+    """Return True if the question is about the AI system or its developers."""
+    if any(t in q for t in _DEV_TRIGGERS_EN):
+        return True
+    if any(t in q for t in _DEV_TRIGGERS_TE):
+        return True
+    if any(n in q for n in _load_dev_names()):
+        return True
+    return False
+
+
+def _answer_system_question(q: str, lang: str):
+    """
+    Build a developer/system answer ENTIRELY from SYSTEM_INFORMATION.
+    No developer name, role, or sentence is hardcoded in this function.
+    Returns a string, or None if the question is not about the system.
+
+    Update rule: edit ONLY data/college_data.py → SYSTEM_INFORMATION.
+    This function automatically reflects every change.
+    """
+    if not _is_system_question(q):
+        return None
+
+    try:
+        from data.college_data import SYSTEM_INFORMATION
+    except Exception:
+        return None
+
+    si         = SYSTEM_INFORMATION
+    project    = si.get("project_name", "Ideal College AI Assistant")
+    ownership  = si.get("ownership",    "")
+    developers = si.get("developers",   [])
+
+    if not developers:
+        return None
+
+    lead       = developers[0]
+    assistants = developers[1:]
+    lead_name  = lead.get("name",         "")
+    lead_role  = lead.get("role",         "")
+    lead_verb  = lead.get("contribution", "designed and developed")
+
+    # ── "Who is <specific person>?" ───────────────────────────────────────
+    # Match by English name fragments OR Telugu name triggers.
+    # Do NOT match if the query also asks about the full team.
+    _team_words = ("team", "developers", "all", "both", "everyone",
+                   "అందరూ", "అందరి")
+    if not any(tw in q for tw in _team_words):
+
+        # Build per-developer Telugu name triggers dynamically from SYSTEM_INFORMATION
+        # e.g. "Avinash Mani" → ["అవినాష్", "అవినాష్ మణి"]
+        # Stored in college_data.py system_information keywords_te so the DB
+        # is the single source of truth; here we re-derive from names.
+        _te_name_map = {
+            "avinash mani":  ["అవినాష్", "అవినాష్ మణి"],
+            "pavan kumar":   ["పవన్", "పవన్ కుమార్"],
+        }
+
+        for dev in developers:
+            name       = dev.get("name", "")
+            role       = dev.get("role", "")
+            contrib    = dev.get("contribution", "contributed to")
+            name_lower = name.lower()
+
+            # English match: any word in the developer's name
+            en_name_words = [w.lower() for w in name.split() if len(w) > 2]
+            en_match = en_name_words and any(w in q for w in en_name_words)
+
+            # Telugu match: check known Telugu transliterations
+            te_triggers = _te_name_map.get(name_lower, [])
+            te_match = any(t in q for t in te_triggers)
+
+            if en_match or te_match:
+                if lang == "te":
+                    return (
+                        f"{name} గారు {project} యొక్క {role}. "
+                        f"వారు ఈ సిస్టమ్‌ను {contrib} చేశారు."
+                    )
+                return f"{name} is the {role} of {project}."
+
+    # ── "Who is the Lead Developer?" ──────────────────────────────────────
+    if "lead developer" in q or "లీడ్ డెవలపర్" in q:
+        if lang == "te":
+            return f"{project} యొక్క Lead Developer {lead_name} ({lead_role}) గారు."
+        return f"The Lead Developer of {project} is {lead_name} ({lead_role})."
+
+    # ── "Who is the Assistant Developer?" ────────────────────────────────
+    if "assistant developer" in q or "అసిస్టెంట్ డెవలపర్" in q:
+        if not assistants:
+            return None
+        asst = assistants[0]
+        if lang == "te":
+            return (
+                f"{project} యొక్క Assistant Developer "
+                f"{asst['name']} ({asst['role']}) గారు."
+            )
+        return (
+            f"The Assistant Developer of {project} is "
+            f"{asst['name']} ({asst['role']})."
+        )
+
+    # ── Full team / general developer question ────────────────────────────
+    if lang == "te":
+        te_parts = [
+            f"{project} ని {lead_name} ({lead_role}) {lead_verb} చేశారు"
+        ]
+        for asst in assistants:
+            te_parts.append(
+                f"మరియు {asst['name']} ({asst['role']}) సహాయంతో"
+            )
+        answer = " ".join(te_parts) + "."
+        if ownership:
+            answer += f" {ownership}"
+        return answer
+
+    # English full-team answer
+    lead_clause = f"{project} was {lead_verb} by {lead_name} ({lead_role})"
+    asst_clauses = [
+        f"{a['name']} ({a['role']})" for a in assistants
+    ]
+    if asst_clauses:
+        answer = (
+            f"{lead_clause} with development assistance from "
+            f"{', '.join(asst_clauses)}."
+        )
+    else:
+        answer = f"{lead_clause}."
+    if ownership:
+        answer += f" {ownership}"
+    return answer
+
+
 def _quick(q: str, lang: str):
     """Return a single direct answer string. No AI. No extra info."""
+
+    # ── SYSTEM / DEVELOPER INFO — always from DB, never from AI ──────────
+    # _answer_system_question() is fully data-driven: reads SYSTEM_INFORMATION
+    # from college_data.py at runtime. No names or roles are hardcoded here.
+    sysinfo = _answer_system_question(q, lang)
+    if sysinfo is not None:
+        return sysinfo
+
     m = _meta()
 
     if any(k in q for k in ["college name", "name of the college", "కళాశాల పేరు"]):
@@ -519,3 +734,4 @@ def get_college_context() -> str:
 
 
 __all__ = ["COLLEGE_KEYWORDS", "get_college_answer", "get_college_context"]
+ 
