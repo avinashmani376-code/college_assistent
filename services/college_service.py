@@ -27,6 +27,7 @@ TRIGGER_WORDS = [
     "కళాశాల", "కాలేజీ", "ఐడియల్",
     # Developer / system questions
     "developed", "developer", "created", "built", "designed", "made this",
+    "invented", "who invented", "who made you", "who built you",
     "avinash", "pavan kumar", "pavan", "who made", "chatbot", "this ai",
     "this system", "development team", "project developers", "system developers",
     "ai developers", "this software", "this project",
@@ -40,8 +41,8 @@ _EXTRA_GATE_WORDS = [
     "academic", "administrative", "exam incharge",
     # Developer / system questions
     "developer", "developed", "avinash", "pavan", "created by", "built by",
-    "designed by", "who made", "who built", "who created", "who designed",
-    "who developed", "chatbot developer", "ai developer", "development team",
+    "designed by", "invented by", "who made", "who built", "who created", "who designed",
+    "who developed", "who invented", "chatbot developer", "ai developer", "development team",
     "project developers", "system developers", "ai developers",
     "tell me about the developer", "who wrote this", "who is behind",
 ]
@@ -313,6 +314,7 @@ def _resolve_section(q: str):
 _DEV_TRIGGERS_EN = frozenset([
     # Generic "who X" questions
     "who developed", "who created", "who built", "who designed", "who made",
+    "who invented", "who invented you", "who invented this",
     "who is developer", "who is the developer", "who is behind", "who wrote this",
     # Role-specific
     "lead developer", "assistant developer",
