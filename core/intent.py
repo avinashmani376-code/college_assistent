@@ -78,6 +78,31 @@ DETAIL_KEYWORDS = [
     "describe in detail", "explain everything", "details",
 ]
  
+SELF_REFERENCE_KEYWORDS = [
+    "who developed you", "who created you", "who made you",
+    "who invented you", "who designed you", "who built you",
+    "who is your developer", "who is your creator", "who is your maker",
+    "who is behind this ai", "who owns this ai", "who owns you",
+    "who created this chatbot", "who developed this chatbot",
+    "who made this chatbot", "who built this chatbot",
+    "who created this assistant", "who developed this assistant",
+    "who made this assistant", "who built this assistant",
+    "who created this system", "who developed this system",
+    "who made this system", "who built this system",
+    "who created ideal ai", "who developed ideal ai",
+    "who made ideal ai", "who built ideal ai",
+    "who created this bot", "who developed this bot",
+    "who made this bot", "who built this bot",
+    "your developer", "your creator", "your maker",
+    "who are you made by", "who are you created by",
+    "who are you developed by", "who are you built by",
+    # Telugu
+    "నిన్ను ఎవరు తయారు చేశారు", "నిన్ను ఎవరు డెవలప్ చేశారు",
+    "ఈ ai ని ఎవరు తయారు చేశారు", "ఈ చాట్\u200dబాట్\u200dను ఎవరు తయారు చేశారు",
+    "ఈ సిస్టమ్\u200dను ఎవరు డెవలప్ చేశారు", "నిన్ను ఎవరు",
+    "ఈ ai ఎవరు", "ఈ చాట్\u200dబాట్ ఎవరు", "ఈ సిస్టమ్ ఎవరు",
+]
+ 
 IMAGE_KEYWORDS = [
     "image", "images", "photo", "photos", "campus photos", "gallery",
     "picture", "pictures", "college images",
@@ -247,7 +272,10 @@ def extract_city_from_weather(msg: str) -> str:
  
 def classify_intent(message: str) -> Dict:
     msg = (message or "").lower().strip()
- 
+
+    if any(k in msg for k in SELF_REFERENCE_KEYWORDS):
+        return {"intent": "college"}
+
     if any(k in msg for k in IMAGE_KEYWORDS):
         return {"intent": "images"}
     if any(k in msg for k in VIDEO_KEYWORDS):
