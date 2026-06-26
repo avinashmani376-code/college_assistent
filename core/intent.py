@@ -103,6 +103,41 @@ SELF_REFERENCE_KEYWORDS = [
     "ఈ ai ఎవరు", "ఈ చాట్\u200dబాట్ ఎవరు", "ఈ సిస్టమ్ ఎవరు",
 ]
  
+# Action verbs that signal "who built/created this AI"
+_SELF_REF_VERBS = [
+    "developed", "created", "made", "invented", "designed", "built",
+    "programmed", "coded", "launched", "trained", "deployed",
+]
+# Self-referential targets — user is asking about THIS system
+_SELF_REF_TARGETS = [
+    "you", "your", "this ai", "this bot", "this chatbot",
+    "this assistant", "this system", "ideal ai", "this app",
+    "this application", "this tool",
+]
+ 
+def _is_self_reference(msg: str) -> bool:
+    """
+    Returns True if the message is asking who created/built/etc. this AI system.
+    Handles punctuation, extra words, and varied phrasing robustly.
+    """
+    # Fast path: check the explicit keyword list first
+    if any(k in msg for k in SELF_REFERENCE_KEYWORDS):
+        return True
+    # Pattern: "who <verb> you/this ai/..."
+    if "who" in msg:
+        for verb in _SELF_REF_VERBS:
+            if verb in msg:
+                for target in _SELF_REF_TARGETS:
+                    if target in msg:
+                        return True
+    # Pattern: "your developer / your creator / your maker"
+    for phrase in ("your developer", "your creator", "your maker",
+                   "who made you", "who built you", "who created you",
+                   "who invented you", "who designed you", "who developed you"):
+        if phrase in msg:
+            return True
+    return False
+ 
 IMAGE_KEYWORDS = [
     "image", "images", "photo", "photos", "campus photos", "gallery",
     "picture", "pictures", "college images",
@@ -273,7 +308,7 @@ def extract_city_from_weather(msg: str) -> str:
 def classify_intent(message: str) -> Dict:
     msg = (message or "").lower().strip()
 
-    if any(k in msg for k in SELF_REFERENCE_KEYWORDS):
+    if _is_self_reference(msg):
         return {"intent": "college"}
 
     if any(k in msg for k in IMAGE_KEYWORDS):
