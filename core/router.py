@@ -1,4 +1,3 @@
-
 """
 core/router.py
  
@@ -111,44 +110,78 @@ def _extract_topic_from_history(history: list) -> str:
     return ""
  
  
+def _is_message_self_contained(raw: str) -> bool:
+    """
+    Returns True when the current message clearly carries its own subject
+    and intent — previous context must NOT be injected.
+ 
+    This mirrors the logic in classify_intent_with_context._is_self_contained
+    but works on the raw string before classification, so the router can
+    decide whether to call _resolve_message at all.
+    """
+    msg = raw.lower().strip()
+ 
+    # Explicit intent keywords that make a message self-contained
+    weather_hit = any(k in msg for k in WEATHER_KEYWORDS)
+    college_hit = sum(1 for k in COLLEGE_KEYWORDS if k in msg) >= 1
+    news_hit    = any(k in msg for k in NEWS_KEYWORDS)
+ 
+    if weather_hit or college_hit or news_hit:
+        return True
+ 
+    # 2+ meaningful content words → has its own subject
+    cw = _content_words(msg)
+    if len(cw) >= 2:
+        return True
+ 
+    return False
+ 
+ 
 def _resolve_message(user_message: str, ctx: dict) -> str:
     """
-    Expand a bare / pronoun follow-up message using context.
+    Expand a bare/pronoun follow-up using context.
  
-    Examples:
-      history topic: Rajinikanth
-      "What is his latest movie?"  →  "What is Rajinikanth latest movie?"
-      "latest movie"               →  "Rajinikanth latest movie"
-      "Budget?"                    →  "Rajinikanth Budget"
-      "Who directed it?"           →  "Who directed Rajinikanth"
+    RULE: Only expand when the current message is ambiguous (no clear subject).
+    If the message is self-contained, return it unchanged — never inject context.
  
-    Weather context:
-      "Tomorrow?" (after weather Hyderabad)  →  "weather tomorrow Hyderabad"
+    Examples (topic in context = Rajinikanth):
+      "latest movie"          →  "Rajinikanth latest movie"
+      "What is his net worth?" →  "What is Rajinikanth net worth?"
+      "Who directed it?"       →  "Who directed Rajinikanth"
+ 
+    But:
+      "Weather in Hyderabad"   →  "Weather in Hyderabad"  (unchanged)
+      "Latest AI news"         →  "Latest AI news"         (unchanged)
+      "Tell me about Elon Musk"→  "Tell me about Elon Musk"(unchanged)
     """
     raw     = user_message.strip()
     msg_low = raw.lower()
  
-    # ── Detect bare follow-up ───────────────────────────────────────────
+    # ── STEP 1: If message is self-contained, never touch it ───────────
+    if _is_message_self_contained(raw):
+        return user_message
+ 
+    # ── STEP 2: Detect bare / pronoun follow-up ────────────────────────
     cw = _content_words(msg_low)
-    is_pronoun  = bool(set(msg_low.split()) & _PRONOUNS)
-    is_bare     = (
+    is_pronoun = bool(set(msg_low.split()) & _PRONOUNS)
+    is_bare    = (
         any(msg_low.startswith(s) for s in _FOLLOWUP_STARTERS)
         or (is_pronoun and len(cw) <= 4)
-        or (len(cw) <= 2 and not any(c.isupper() for c in raw))
+        or len(cw) <= 1
     )
  
     if not is_bare:
-        return user_message   # self-contained — no expansion needed
+        return user_message   # still self-contained enough
  
-    # ── Weather follow-up ───────────────────────────────────────────────
+    # ── STEP 3: Weather follow-up ───────────────────────────────────────
     if ctx.get("intent") == "weather" and ctx.get("city"):
         city = ctx["city"]
         return f"weather {raw} {city}"
  
-    # ── Topic-based follow-up ───────────────────────────────────────────
+    # ── STEP 4: Topic-based follow-up ──────────────────────────────────
     topic = ctx.get("topic") or _extract_topic_from_history(ctx.get("history", []))
     if not topic:
-        return user_message   # no context to inject
+        return user_message   # no prior context to inject
  
     resolved = raw
  

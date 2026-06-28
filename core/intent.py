@@ -500,9 +500,53 @@ def classify_intent(message: str) -> Dict:
     return {"intent": "general"}
  
  
+def _is_self_contained(msg: str, weather_score: int, college_score: int,
+                        has_news: bool, has_search: bool, cw: list) -> bool:
+    """
+    Returns True when the current message is self-contained — it has a
+    clear intent and subject on its own, so previous context must be
+    completely ignored.
+ 
+    A message is self-contained when ANY of these is true:
+      - It has a weather signal (city + weather keyword)
+      - It has a news signal with a topic
+      - It has a college signal
+      - It has 3+ meaningful content words (clear subject present)
+      - It contains a named entity signal (capitalised word that is NOT
+        a sentence-start-only capital, i.e. appears mid-sentence OR the
+        message is multi-word and starts with a capital proper noun)
+    """
+    # Strong explicit intent signals always win
+    if weather_score >= 1:
+        return True
+    if college_score >= 2:          # strong college match
+        return True
+    if has_news and any(                # news with its own topic
+        re.search(pat, msg, re.IGNORECASE) and
+        any(g for g in (re.search(pat, msg, re.IGNORECASE).groups() or []) if g)
+        for pat in _NEWS_PATTERNS
+    ):
+        return True
+ 
+    # 3+ content words → message carries its own subject
+    if len(cw) >= 3:
+        return True
+ 
+    # 2 content words where at least one looks like a proper noun
+    # (original text has a capital mid-sentence or is a known named entity)
+    if len(cw) >= 2:
+        return True          # 2 content words is enough to be self-contained
+ 
+    return False
+ 
+ 
 def classify_intent_with_context(message: str, context: Dict) -> Dict:
     """
     Context-aware intent classification.
+ 
+    PRIORITY ORDER:
+      1. Current message  ← always analysed first, highest priority
+      2. Previous context ← used ONLY when current message is ambiguous/incomplete
  
     context = {
         "intent":   last resolved intent (str),
@@ -511,14 +555,16 @@ def classify_intent_with_context(message: str, context: Dict) -> Dict:
     }
  
     Returns the same dict shape as classify_intent().
-    May update context["topic"] / context["city"] in place.
+    Updates context in-place when a new clear intent is detected.
     """
     msg = (message or "").lower().strip()
     raw = message.strip()
  
-    # ── Always-first checks (self-ref / media) ─────────────────────────
+    # ── Always-first checks (self-ref / media) — never need context ────
     if _is_self_reference(msg):
         context["intent"] = "college"
+        context["topic"]  = ""
+        context["city"]   = ""
         return {"intent": "college"}
  
     if any(k in msg for k in IMAGE_KEYWORDS):
@@ -529,54 +575,82 @@ def classify_intent_with_context(message: str, context: Dict) -> Dict:
         context["intent"] = "video"
         return {"intent": "video"}
  
-    # ── Score based intent signals ──────────────────────────────────────
+    # ── Score current message ───────────────────────────────────────────
     weather_score = sum(1 for k in WEATHER_KEYWORDS if k in msg)
     college_score = sum(1 for k in COLLEGE_KEYWORDS if k in msg)
     college_score += sum(2 for k in ROMAN_TELUGU_COLLEGE if k in msg)
-    has_news      = _is_news_query(msg)
-    has_search    = _is_search_query(msg)
- 
-    # ── Detect if this is a bare follow-up ─────────────────────────────
+    has_news  = _is_news_query(msg)
+    has_search = _is_search_query(msg)
     cw = _content_words(msg)
-    is_pronoun_msg  = bool(set(msg.split()) & _PRONOUNS)
-    is_bare_followup = (
-        any(msg.startswith(s) for s in _FOLLOWUP_STARTERS)
-        or (is_pronoun_msg and not weather_score and not college_score and not has_news)
-        or len(cw) <= 2 and not weather_score and not college_score and not has_news
-    )
  
+    # ── Step 1: Is the current message self-contained? ──────────────────
+    # If YES → route normally, update context, IGNORE previous context.
+    # If NO  → it's a bare follow-up → use previous context.
+    self_contained = _is_self_contained(msg, weather_score, college_score,
+                                        has_news, has_search, cw)
+ 
+    if self_contained:
+        # ── Normal routing (current message wins completely) ────────────
+        if weather_score >= 1 and college_score <= weather_score:
+            city = extract_city_from_weather(message)
+            context["intent"] = "weather"
+            context["city"]   = city
+            context["topic"]  = ""
+            return {"intent": "weather", "city": city}
+ 
+        if has_news:
+            topic = _extract_news_topic(msg)
+            context["intent"] = "news"
+            context["topic"]  = topic
+            context["city"]   = ""
+            return {"intent": "news", "topic": topic}
+ 
+        if college_score >= 1:
+            context["intent"] = "college"
+            context["topic"]  = ""
+            context["city"]   = ""
+            return {"intent": "college"}
+ 
+        if has_search:
+            topic = " ".join(cw[:4]) if cw else raw
+            context["intent"] = "search"
+            context["topic"]  = topic
+            context["city"]   = ""
+            return {"intent": "search", "topic": topic}
+ 
+        topic = " ".join(cw[:4]) if cw else ""
+        context["intent"] = "general"
+        context["topic"]  = topic
+        context["city"]   = ""
+        return {"intent": "general"}
+ 
+    # ── Step 2: Message is ambiguous — use previous context ─────────────
     prior_intent = context.get("intent", "")
     prior_topic  = context.get("topic", "")
     prior_city   = context.get("city", "")
  
-    # ── WEATHER follow-up ───────────────────────────────────────────────
-    if prior_intent == "weather" and is_bare_followup:
-        city = prior_city or "Kakinada"
-        # Check if it's a recognisable weather follow-up word
-        if set(msg.split()) & WEATHER_FOLLOWUP_WORDS or len(cw) <= 2:
-            return {"intent": "weather", "city": city, "_followup": True}
+    is_pronoun_msg = bool(set(msg.split()) & _PRONOUNS)
  
-    # ── NEWS follow-up ──────────────────────────────────────────────────
-    if prior_intent == "news" and is_bare_followup:
-        topic = prior_topic or ""
+    # Weather follow-up ("Tomorrow?", "Weekend?", "Rain?")
+    if prior_intent == "weather" and prior_city:
+        if set(msg.split()) & WEATHER_FOLLOWUP_WORDS or len(cw) <= 2:
+            return {"intent": "weather", "city": prior_city, "_followup": True}
+ 
+    # News follow-up ("Today?", "Any updates?", "Big companies?")
+    if prior_intent == "news":
         if set(msg.split()) & NEWS_FOLLOWUP_WORDS or len(cw) <= 2:
-            followup_q = f"{topic} {raw}".strip() if topic else raw
-            return {"intent": "news", "topic": topic, "_followup": True,
+            followup_q = f"{prior_topic} {raw}".strip() if prior_topic else raw
+            return {"intent": "news", "topic": prior_topic, "_followup": True,
                     "_resolved_message": followup_q}
  
-    # ── SEARCH/GENERAL follow-up with prior topic ───────────────────────
-    if prior_intent in ("search", "general") and prior_topic and is_bare_followup:
-        return {"intent": "search", "topic": prior_topic,
-                "_followup": True, "_resolved_message": f"{prior_topic} {raw}".strip()}
+    # Search/general follow-up with pronoun or bare word
+    if prior_intent in ("search", "general") and prior_topic:
+        if is_pronoun_msg or len(cw) <= 2:
+            return {"intent": "search", "topic": prior_topic,
+                    "_followup": True,
+                    "_resolved_message": f"{prior_topic} {raw}".strip()}
  
-    # ── Normal classification (same as classify_intent) ─────────────────
-    if weather_score >= 1 and college_score <= weather_score:
-        city = extract_city_from_weather(message)
-        context["intent"] = "weather"
-        context["city"]   = city
-        context["topic"]  = ""
-        return {"intent": "weather", "city": city}
- 
+    # ── Step 3: Fallback — no clear context either, classify normally ───
     if has_news:
         topic = _extract_news_topic(msg)
         context["intent"] = "news"
@@ -584,14 +658,7 @@ def classify_intent_with_context(message: str, context: Dict) -> Dict:
         context["city"]   = ""
         return {"intent": "news", "topic": topic}
  
-    if college_score >= 1:
-        context["intent"] = "college"
-        context["topic"]  = ""
-        context["city"]   = ""
-        return {"intent": "college"}
- 
     if has_search:
-        # Extract the real subject as topic for future follow-ups
         topic = " ".join(cw[:4]) if cw else raw
         context["intent"] = "search"
         context["topic"]  = topic
@@ -601,4 +668,3 @@ def classify_intent_with_context(message: str, context: Dict) -> Dict:
     context["intent"] = "general"
     context["topic"]  = " ".join(cw[:4]) if cw else ""
     return {"intent": "general"}
- 
