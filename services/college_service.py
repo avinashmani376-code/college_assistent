@@ -1,6 +1,6 @@
 """
 services/college_service.py
-
+ 
 Rules:
 - Return ONLY the answer to the question asked. Nothing extra.
 - DB answers: direct one-liners or short lists.
@@ -9,20 +9,23 @@ Rules:
 import os
 import logging
 from data.college_data import COLLEGE_DATABASE
-
+ 
 logger = logging.getLogger(__name__)
-
+ 
 try:
     from data.college_data import get_college_context as _get_context
     from data.college_data import COLLEGE_KEYWORDS
 except Exception:
     _get_context = None
     COLLEGE_KEYWORDS = []
-
+ 
 # Gate: question must contain at least one of these to be handled here.
 TRIGGER_WORDS = [
     "ideal", "college", "campus", "kakinada college", "vidyuth nagar",
     "director", "academic director", "administrative director",
+    "principal", "vice principal",
+    "hod", "head of department", "head of dept",
+    "faculty", "staff", "professor",
     "ranjith", "vasu", "satyanarayana", "kama raju",
     "కళాశాల", "కాలేజీ", "ఐడియల్",
     # Developer / system questions
@@ -35,8 +38,10 @@ TRIGGER_WORDS = [
     "డెవలపర్", "లీడ్ డెవలపర్", "అసిస్టెంట్ డెవలపర్",
     "అవినాష్", "పవన్",
 ]
-
+ 
 _EXTRA_GATE_WORDS = [
+    "principal", "vice principal", "hod", "head of department",
+    "head of dept", "department head", "who heads",
     "director", "ranjith", "vasu", "satyanarayana", "kama raju",
     "academic", "administrative", "exam incharge",
     # Developer / system questions
@@ -46,28 +51,28 @@ _EXTRA_GATE_WORDS = [
     "project developers", "system developers", "ai developers",
     "tell me about the developer", "who wrote this", "who is behind",
 ]
-
-
+ 
+ 
 def _has_ai_keys() -> bool:
     return bool(os.getenv("GROQ_API_KEY", "") or os.getenv("OPEN_ROUTER_API", ""))
-
-
+ 
+ 
 def _meta():
     return COLLEGE_DATABASE.get("metadata", {}) or {}
-
-
+ 
+ 
 def _sections():
     return COLLEGE_DATABASE.get("sections", {}) or {}
-
-
+ 
+ 
 def _section_data(key, lang="en"):
     sec = _sections().get(key, {}) or {}
     data = sec.get("data", {}) or {}
     return data.get(lang) or data.get("en") or data
-
-
+ 
+ 
 # ── Short formatters — each returns ONE clean answer line ─────────────────
-
+ 
 def _fmt_courses(data) -> str:
     if not isinstance(data, dict):
         return str(data)
@@ -79,16 +84,16 @@ def _fmt_courses(data) -> str:
     if pg:
         parts.append("PG (2yr): " + ", ".join(pg))
     return "\n".join(parts) if parts else "Please contact the college for course details."
-
-
+ 
+ 
 def _fmt_hostel(data) -> str:
     if isinstance(data, dict):
         fee   = data.get("fee") or data.get("annual_fee") or "₹60,000/year"
         avail = data.get("availability") or "Available for boys and girls separately"
         return f"Hostel is available at Ideal College. Fee: {fee}. {avail}."
     return "Hostel facility is available. Contact college for details."
-
-
+ 
+ 
 def _fmt_transport(data) -> str:
     if isinstance(data, dict):
         routes = data.get("routes") or data.get("areas") or []
@@ -98,8 +103,8 @@ def _fmt_transport(data) -> str:
         if desc:
             return str(desc)
     return "Bus/transport facility is available. Contact college for route details."
-
-
+ 
+ 
 def _fmt_library(data) -> str:
     if isinstance(data, dict):
         books = data.get("books") or data.get("total_books") or ""
@@ -109,8 +114,8 @@ def _fmt_library(data) -> str:
         if desc:
             return str(desc)
     return "Library is available with reference and lending sections."
-
-
+ 
+ 
 def _fmt_admissions(data) -> str:
     if isinstance(data, dict):
         elig = data.get("eligibility") or data.get("criteria") or ""
@@ -123,8 +128,8 @@ def _fmt_admissions(data) -> str:
         if out:
             return "\n".join(out)
     return "Contact the college admissions office for eligibility and process details."
-
-
+ 
+ 
 def _fmt_facilities(data) -> str:
     if isinstance(data, dict):
         items = []
@@ -136,8 +141,8 @@ def _fmt_facilities(data) -> str:
         if items:
             return "Available facilities: " + ", ".join(items) + "."
     return "Campus facilities include labs, library, Wi-Fi, cafeteria, playground and more."
-
-
+ 
+ 
 def _fmt_placements(data) -> str:
     if not isinstance(data, dict):
         return "Placement drives are conducted every year."
@@ -155,8 +160,8 @@ def _fmt_placements(data) -> str:
     if phys:
         lines.append("Recruiters: " + ", ".join(phys[:6]) + ".")
     return "\n".join(lines)
-
-
+ 
+ 
 def _fmt_fee(data, q: str) -> str:
     if not isinstance(data, dict):
         return "Contact the college for fee details."
@@ -179,8 +184,8 @@ def _fmt_fee(data, q: str) -> str:
             return f"The annual {label} fee at Ideal College is {fee}."
     rng = data.get("range", "₹45,000–₹60,000 per year")
     return f"Fee range at Ideal College: {rng}."
-
-
+ 
+ 
 def _fmt_exams(data) -> str:
     if isinstance(data, dict):
         att = data.get("minimum_attendance") or data.get("attendance_required") or ""
@@ -190,16 +195,16 @@ def _fmt_exams(data) -> str:
         if desc:
             return str(desc)
     return "Exams follow Adikavi Nannaya University pattern. 75% minimum attendance required."
-
-
+ 
+ 
 def _fmt_sports(data) -> str:
     if isinstance(data, dict):
         items = data.get("sports") or data.get("activities") or []
         if items and isinstance(items, list):
             return "Sports/activities: " + ", ".join(str(i) for i in items[:8]) + "."
     return "Sports and cultural activities including NSS, NCC, cricket, volleyball and more."
-
-
+ 
+ 
 def _fmt_history(data) -> str:
     if isinstance(data, dict):
         est = data.get("established") or data.get("founded") or ""
@@ -212,45 +217,87 @@ def _fmt_history(data) -> str:
         if out:
             return ". ".join(out) + "."
     return "Ideal College was established in 2000."
-
-
+ 
+ 
 def _fmt_rules(data) -> str:
     if isinstance(data, dict):
         items = data.get("rules") or data.get("regulations") or []
         if items and isinstance(items, list):
             return "Student rules: " + "; ".join(str(r) for r in items[:4]) + "."
     return "College has strict anti-ragging policy. Uniform and mobile restrictions apply."
-
-
+ 
+ 
 def _fmt_faculty(data, q: str) -> str:
     if not isinstance(data, dict):
         return ""
     depts = data.get("departments", {}) or {}
+ 
+    # ── HOD-specific query detection ────────────────────────────────────────
+    # Matches: "who is hod", "who is the hod", "who heads the X department",
+    #          "hod of X", "head of X department", "X hod", "X department head"
+    _is_hod_query = (
+        "hod" in q
+        or "head of" in q
+        or "who heads" in q
+        or "department head" in q
+        or "head of department" in q
+        or "head of dept" in q
+    )
+ 
     dept_aliases = {
         "agriculture":             ["agriculture", "agri"],
         "fisheries":               ["fisheries", "aqua", "fish"],
-        "fsn_and_food_technology": ["food", "fsn", "nutrition"],
-        "bba":                     ["bba", "business"],
-        "computer_science":        ["computer", "cs", "bca", "mca", "computers"],
+        "fsn_and_food_technology": ["food", "fsn", "nutrition", "food technology"],
+        "bba":                     ["bba", "business administration", "business"],
+        "computer_science":        ["computer science", "computer", "cs", "bca",
+                                    "mca", "computers", "comp sci"],
     }
     for k, aliases in dept_aliases.items():
         if any(a in q for a in aliases) and k in depts:
             d = depts[k]
-            lines = [f"🏫 {d.get('name', k.replace('_', ' ').title())}"]
+            dept_name = d.get("name", k.replace("_", " ").title())
+            if _is_hod_query:
+                # Return only HOD info for HOD-specific queries
+                if d.get("hod"):
+                    return f"The HOD of {dept_name} is {d['hod']}."
+                if d.get("hods"):
+                    lines = []
+                    for hk, hv in d["hods"].items():
+                        lines.append(f"HOD ({hk.upper()}): {hv}")
+                    return "\n".join(lines)
+                return f"Please contact the college for {dept_name} HOD details."
+            else:
+                lines = [f"🏫 {dept_name}"]
+                if d.get("hod"):
+                    lines.append(f"HOD: {d['hod']}")
+                if d.get("hods"):
+                    for hk, hv in d["hods"].items():
+                        lines.append(f"HOD ({hk.upper()}): {hv}")
+                return "\n".join(lines)
+ 
+    # Generic HOD query without dept → list all HODs
+    if _is_hod_query:
+        lines = []
+        for k, d in depts.items():
+            if not isinstance(d, dict):
+                continue
+            dept_name = d.get("name", k.replace("_", " ").title())
             if d.get("hod"):
-                lines.append(f"HOD: {d['hod']}")
-            if d.get("hods"):
+                lines.append(f"{dept_name}: {d['hod']}")
+            elif d.get("hods"):
                 for hk, hv in d["hods"].items():
-                    lines.append(f"HOD ({hk.upper()}): {hv}")
-            return "\n".join(lines)
+                    lines.append(f"{dept_name} ({hk.upper()}): {hv}")
+        if lines:
+            return "Department HODs:\n" + "\n".join(f"  • {l}" for l in lines)
+ 
     # Generic: list department names only
     names = [d.get("name", k) for k, d in depts.items()]
     total = data.get("total_faculty")
     body  = "\n".join(f"  • {n}" for n in names)
     tail  = f"\nTotal Faculty: {total}" if total else ""
     return f"Departments:\n{body}{tail}"
-
-
+ 
+ 
 # Section dispatch table
 _SECTION_FMT = {
     "courses":                    lambda data, q, lang: _fmt_courses(data),
@@ -268,7 +315,7 @@ _SECTION_FMT = {
     "historical_journey":         lambda data, q, lang: _fmt_history(data),
     "student_rules":              lambda data, q, lang: _fmt_rules(data),
 }
-
+ 
 # Section routing: keyword → section key
 SECTION_HINTS = [
     (["course", "ug", "pg", "stream", "branch", "కోర్సు",
@@ -284,7 +331,10 @@ SECTION_HINTS = [
       "cctv", "parking", "auditorium", "ro water", "సదుపాయ", "canteen"], "campus_facilities"),
     (["placement", "placements", "drives", "company", "companies", "selected",
       "ప్లేస్‌మెంట్", "recruited", "package", "campus drive", "job"], "placements"),
-    (["faculty", "hod", "department", "staff", "teacher", "professor",
+    (["faculty", "hod", "head of department", "head of dept", "department head",
+      "who heads", "heads the", "department hod", "hod of",
+      "computer science hod", "cs hod", "bca hod", "mca hod",
+      "department", "staff", "teacher", "professor",
       "సిబ్బంది", "hod evaru", "lecturer", "who teaches"], "faculty_and_departments"),
     (["governance", "exam incharge", "suresh"], "governance_and_administration"),
     (["admission", "eligibility", "documents", "అడ్మిషన్", "apply",
@@ -299,15 +349,15 @@ SECTION_HINTS = [
     (["soft skill", "crt", "spoken english", "competitive exam",
       "training"], "crt_and_soft_skills"),
 ]
-
-
+ 
+ 
 def _resolve_section(q: str):
     for keys, sec in SECTION_HINTS:
         if any(k in q for k in keys):
             return sec
     return None
-
-
+ 
+ 
 # ── Developer / system question detection ────────────────────────────────
 # These are GENERIC action/role phrases — no developer names here.
 # Names are loaded dynamically from SYSTEM_INFORMATION at runtime.
@@ -332,7 +382,7 @@ _DEV_TRIGGERS_EN = frozenset([
     "system developers", "ai developers",
     "tell me about the developers",
 ])
-
+ 
 _DEV_TRIGGERS_TE = frozenset([
     "ఎవరు తయారు చేశారు", "ఎవరు డెవలప్ చేశారు",
     "ఎవరు డిజైన్ చేశారు", "ఎవరు నిర్మించారు",
@@ -345,13 +395,13 @@ _DEV_TRIGGERS_TE = frozenset([
     "అవినాష్", "అవినాష్ మణి",
     "పవన్", "పవన్ కుమార్",
 ])
-
+ 
 # Cache: populated once at first call from SYSTEM_INFORMATION.
 # Holds lowercase word fragments of every developer's name.
 # Never hardcoded here — always built from SYSTEM_INFORMATION.
 _DEV_NAME_CACHE: list = []
-
-
+ 
+ 
 def _load_dev_names() -> list:
     """Return lowercase name fragments from SYSTEM_INFORMATION (cached)."""
     global _DEV_NAME_CACHE
@@ -368,8 +418,8 @@ def _load_dev_names() -> list:
     except Exception:
         pass
     return _DEV_NAME_CACHE
-
-
+ 
+ 
 def _is_system_question(q: str) -> bool:
     """Return True if the question is about the AI system or its developers."""
     if any(t in q for t in _DEV_TRIGGERS_EN):
@@ -379,46 +429,46 @@ def _is_system_question(q: str) -> bool:
     if any(n in q for n in _load_dev_names()):
         return True
     return False
-
-
+ 
+ 
 def _answer_system_question(q: str, lang: str):
     """
     Build a developer/system answer ENTIRELY from SYSTEM_INFORMATION.
     No developer name, role, or sentence is hardcoded in this function.
     Returns a string, or None if the question is not about the system.
-
+ 
     Update rule: edit ONLY data/college_data.py → SYSTEM_INFORMATION.
     This function automatically reflects every change.
     """
     if not _is_system_question(q):
         return None
-
+ 
     try:
         from data.college_data import SYSTEM_INFORMATION
     except Exception:
         return None
-
+ 
     si         = SYSTEM_INFORMATION
     project    = si.get("project_name", "Ideal College AI Assistant")
     ownership  = si.get("ownership",    "")
     developers = si.get("developers",   [])
-
+ 
     if not developers:
         return None
-
+ 
     lead       = developers[0]
     assistants = developers[1:]
     lead_name  = lead.get("name",         "")
     lead_role  = lead.get("role",         "")
     lead_verb  = lead.get("contribution", "designed and developed")
-
+ 
     # ── "Who is <specific person>?" ───────────────────────────────────────
     # Match by English name fragments OR Telugu name triggers.
     # Do NOT match if the query also asks about the full team.
     _team_words = ("team", "developers", "all", "both", "everyone",
                    "అందరూ", "అందరి")
     if not any(tw in q for tw in _team_words):
-
+ 
         # Build per-developer Telugu name triggers dynamically from SYSTEM_INFORMATION
         # e.g. "Avinash Mani" → ["అవినాష్", "అవినాష్ మణి"]
         # Stored in college_data.py system_information keywords_te so the DB
@@ -427,21 +477,21 @@ def _answer_system_question(q: str, lang: str):
             "avinash mani":  ["అవినాష్", "అవినాష్ మణి"],
             "pavan kumar":   ["పవన్", "పవన్ కుమార్"],
         }
-
+ 
         for dev in developers:
             name       = dev.get("name", "")
             role       = dev.get("role", "")
             contrib    = dev.get("contribution", "contributed to")
             name_lower = name.lower()
-
+ 
             # English match: any word in the developer's name
             en_name_words = [w.lower() for w in name.split() if len(w) > 2]
             en_match = en_name_words and any(w in q for w in en_name_words)
-
+ 
             # Telugu match: check known Telugu transliterations
             te_triggers = _te_name_map.get(name_lower, [])
             te_match = any(t in q for t in te_triggers)
-
+ 
             if en_match or te_match:
                 if lang == "te":
                     return (
@@ -449,13 +499,13 @@ def _answer_system_question(q: str, lang: str):
                         f"వారు ఈ సిస్టమ్‌ను {contrib} చేశారు."
                     )
                 return f"{name} is the {role} of {project}."
-
+ 
     # ── "Who is the Lead Developer?" ──────────────────────────────────────
     if "lead developer" in q or "లీడ్ డెవలపర్" in q:
         if lang == "te":
             return f"{project} యొక్క Lead Developer {lead_name} ({lead_role}) గారు."
         return f"The Lead Developer of {project} is {lead_name} ({lead_role})."
-
+ 
     # ── "Who is the Assistant Developer?" ────────────────────────────────
     if "assistant developer" in q or "అసిస్టెంట్ డెవలపర్" in q:
         if not assistants:
@@ -470,7 +520,7 @@ def _answer_system_question(q: str, lang: str):
             f"The Assistant Developer of {project} is "
             f"{asst['name']} ({asst['role']})."
         )
-
+ 
     # ── Full team / general developer question ────────────────────────────
     if lang == "te":
         te_parts = [
@@ -484,7 +534,7 @@ def _answer_system_question(q: str, lang: str):
         if ownership:
             answer += f" {ownership}"
         return answer
-
+ 
     # English full-team answer
     lead_clause = f"{project} was {lead_verb} by {lead_name} ({lead_role})"
     asst_clauses = [
@@ -500,83 +550,144 @@ def _answer_system_question(q: str, lang: str):
     if ownership:
         answer += f" {ownership}"
     return answer
-
-
+ 
+ 
 def _quick(q: str, lang: str):
     """Return a single direct answer string. No AI. No extra info."""
-
+ 
     # ── SYSTEM / DEVELOPER INFO — always from DB, never from AI ──────────
     # _answer_system_question() is fully data-driven: reads SYSTEM_INFORMATION
     # from college_data.py at runtime. No names or roles are hardcoded here.
     sysinfo = _answer_system_question(q, lang)
     if sysinfo is not None:
         return sysinfo
-
+ 
     m = _meta()
-
+ 
     if any(k in q for k in ["college name", "name of the college", "కళాశాల పేరు"]):
         return m.get("college_name_te") if lang == "te" else m.get("college_name_en")
-
+ 
     if any(k in q for k in ["location", "address", "where is", "where", "ఎక్కడ"]):
         return m.get("location")
-
+ 
     if "naac" in q or "accredit" in q:
         return m.get("accreditation") or "NAAC 'A' Grade"
-
+ 
     if "affiliat" in q:
         return m.get("affiliation")
-
+ 
     gen = _section_data("general_information", lang)
     if not isinstance(gen, dict):
         return None
-
-    if "principal" in q and "vice" not in q:
-        name = gen.get("principal", "")
-        if name:
-            return (f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు."
-                    if lang == "te" else f"The Principal of Ideal College is {name}.")
-
-    if "vice principal" in q or ("vice" in q and "principal" in q):
-        vp = gen.get("vice_principal", "")
-        if vp:
-            return (f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు."
-                    if lang == "te" else f"The Vice Principal of Ideal College is {vp}.")
-
-    if any(k in q for k in ["academic director", "ranjith"]):
-        name = gen.get("academic_director", "Ranjith Sir")
-        return (f"Academic Director: {name}."
-                if lang == "te" else f"The Academic Director of Ideal College is {name}.")
-
-    if any(k in q for k in ["administrative director", "admin director", "vasu"]):
-        name = gen.get("administrative_director", "Vasu Sir")
-        return (f"Administrative Director: {name}."
-                if lang == "te" else f"The Administrative Director of Ideal College is {name}.")
-
+ 
+    # ── Entity extraction: strip filler, match LONGEST entity first ─────────
+    # This handles all natural phrasings:
+    #   "Who is the Vice Principal?" / "Vice Principal" / "Tell me the Principal"
+    # Longest entities are checked BEFORE shorter overlapping ones.
+ 
+    _FILLER = {
+        "who", "is", "the", "a", "an", "tell", "me", "please", "can", "you",
+        "what", "about", "our", "this", "college", "ideal", "kakinada",
+        "give", "information", "explain", "describe", "say", "name",
+        "of", "at", "in", "for", "and", "or", "are", "was", "were",
+        "heads", "head", "sir", "madam", "mr", "ms", "dr",
+    }
+ 
+    def _strip_filler(text: str) -> str:
+        """Remove filler words and return the core entity."""
+        tokens = [w.strip("?.!,") for w in text.lower().split()]
+        kept = [w for w in tokens if w not in _FILLER and w]
+        return " ".join(kept)
+ 
+    core = _strip_filler(q)  # e.g. "who is the vice principal?" → "vice principal"
+ 
+    # Ordered longest-first so "vice principal" beats "principal",
+    # "administrative director" beats "director", etc.
+    _ENTITY_MAP = [
+        # (entity_keywords, db_key, te_template, en_template)
+        (
+            ["vice principal", "vice-principal"],
+            "vice_principal",
+            lambda n: f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {n} గారు.",
+            lambda n: f"The Vice Principal of Ideal College is {n}.",
+        ),
+        (
+            ["academic director"],
+            "academic_director",
+            lambda n: f"Academic Director: {n}.",
+            lambda n: f"The Academic Director of Ideal College is {n}.",
+        ),
+        (
+            ["administrative director", "admin director"],
+            "administrative_director",
+            lambda n: f"Administrative Director: {n}.",
+            lambda n: f"The Administrative Director of Ideal College is {n}.",
+        ),
+        (
+            ["principal"],
+            "principal",
+            lambda n: f"మన కాలేజీ ప్రిన్సిపల్ {n} గారు.",
+            lambda n: f"The Principal of Ideal College is {n}.",
+        ),
+        (
+            ["ranjith"],
+            "academic_director",
+            lambda n: f"Academic Director: {n}.",
+            lambda n: f"The Academic Director of Ideal College is {n}.",
+        ),
+        (
+            ["vasu"],
+            "administrative_director",
+            lambda n: f"Administrative Director: {n}.",
+            lambda n: f"The Administrative Director of Ideal College is {n}.",
+        ),
+        (
+            ["kama raju", "kama"],
+            "vice_principal",
+            lambda n: f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {n} గారు.",
+            lambda n: f"The Vice Principal of Ideal College is {n}.",
+        ),
+        (
+            ["satyanarayana"],
+            "principal",
+            lambda n: f"మన కాలేజీ ప్రిన్సిపల్ {n} గారు.",
+            lambda n: f"The Principal of Ideal College is {n}.",
+        ),
+    ]
+ 
+    for keywords, db_key, te_fn, en_fn in _ENTITY_MAP:
+        # Match against both original q and stripped core
+        if any(kw in q for kw in keywords) or any(kw in core for kw in keywords):
+            name = gen.get(db_key, "")
+            if name:
+                return te_fn(name) if lang == "te" else en_fn(name)
+ 
+    # Bare "director" without qualifier → show both
     if "director" in q and "academic" not in q and "administrative" not in q:
         acad  = gen.get("academic_director", "Ranjith Sir")
         admin = gen.get("administrative_director", "Vasu Sir")
         return f"Academic Director: {acad}\nAdministrative Director: {admin}"
-
+ 
     if any(k in q for k in ["contact", "phone", "ఫోన్", "number", "call"]):
         return f"📞 {gen.get('contact', '')}\n📧 {gen.get('email', '')}"
-
+ 
     if any(k in q for k in ["email", "mail"]):
         return gen.get("email", "")
-
+ 
     if any(k in q for k in ["website", "site", "link", "url"]):
         return gen.get("website", "")
-
+ 
     if any(k in q for k in ["timing", "timings", "hours", "time", "సమయం", "open"]):
         t = gen.get("college_timings", "9:30 AM – 3:45 PM (Mon–Sat)")
         l = gen.get("lunch_break", "1:00 PM – 1:45 PM")
         return f"🕘 {t}\n🍽 Lunch break: {l}"
-
+ 
     if any(k in q for k in ["strength", "how many students", "total students"]):
         return gen.get("college_strength", "")
-
+ 
     return None
-
-
+ 
+ 
 def _format_section(section_key: str, q: str, lang: str = "en") -> str:
     data = _section_data(section_key, lang)
     if not data:
@@ -585,8 +696,8 @@ def _format_section(section_key: str, q: str, lang: str = "en") -> str:
     if fmt:
         return fmt(data, q, lang)
     return ""
-
-
+ 
+ 
 def _build_minimal_context(question: str) -> str:
     """
     Build the smallest possible context for AI fallback — only info
@@ -595,7 +706,7 @@ def _build_minimal_context(question: str) -> str:
     q = question.lower()
     m   = _meta()
     gen = _section_data("general_information") or {}
-
+ 
     # Always include identity info
     lines = [
         f"College: {m.get('college_name_en', 'Ideal College of Arts and Sciences')}",
@@ -603,7 +714,7 @@ def _build_minimal_context(question: str) -> str:
         f"Contact: {gen.get('contact', '0884-2384382')}",
         f"Principal: {gen.get('principal', 'Dr. T. Satyanarayana')}",
     ]
-
+ 
     # Add section data only if the question is about it
     section_map = {
         ("fee", "cost", "tuition"):           "fee_structure",
@@ -624,10 +735,10 @@ def _build_minimal_context(question: str) -> str:
             if sec_data:
                 lines.append(f"\n[{sec_key}]: {str(sec_data)[:400]}")
             break   # only inject the most relevant section
-
+ 
     return "\n".join(lines)
-
-
+ 
+ 
 def _ai_fallback(message: str, lang: str) -> str:
     """ONE AI call with minimal, targeted context. College mode = strict answer only."""
     try:
@@ -642,13 +753,13 @@ def _ai_fallback(message: str, lang: str) -> str:
             if lang == "te" else
             "Please contact the college directly: 0884-2384382"
         )
-
-
+ 
+ 
 def get_college_answer(message: str, lang: str = "en", explain: bool = True):
     if not message:
         return None
     q = message.lower().strip()
-
+ 
     # Gate check
     is_about_college = (
         any(t in q for t in TRIGGER_WORDS)
@@ -657,19 +768,19 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
     )
     if not is_about_college:
         return None
-
+ 
     # 1. Fast direct match
     quick = _quick(q, lang)
     if quick:
         return str(quick).strip()
-
+ 
     # 2. Section-based answer
     sec = _resolve_section(q)
     if sec:
         out = _format_section(sec, q, lang)
         if out:
             return out.strip()
-
+ 
     # 3. General overview (only when "about", "info", "tell me" etc.)
     if any(k in q for k in ["about", "info", "overview", "గురించి"]):
         m   = _meta()
@@ -685,7 +796,7 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
         if gen.get("contact"):
             parts.append(f"📞 {gen['contact']}")
         return "\n".join(parts)
-
+ 
     # 4. Section keyword scan
     for key, sec_data in _sections().items():
         kws = (sec_data.get("keywords_en") or []) + (sec_data.get("keywords_te") or [])
@@ -693,14 +804,14 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
             out = _format_section(key, q, lang)
             if out:
                 return out.strip()
-
+ 
     # 5. AI fallback (last resort — DB had nothing)
     if _has_ai_keys():
         return _ai_fallback(message, lang)
-
+ 
     return None
-
-
+ 
+ 
 def get_college_context() -> str:
     """Full context — used only by router.py when college_service returns None."""
     if _get_context:
@@ -733,7 +844,7 @@ def get_college_context() -> str:
         f"Hostel: Available, ₹60,000/year\n"
         f"Placements 2026: 329 selected from 362 across 9 companies\n"
     )
-
-
+ 
+ 
 __all__ = ["COLLEGE_KEYWORDS", "get_college_answer", "get_college_context"]
  
