@@ -38,36 +38,43 @@ _COLLEGE_TE = (
     "** లేదా ## వాడకండి."
 )
  
-# Default: 1-2 sentences, no padding, no elaboration
+# Default: 2-4 short sentences, voice-friendly, no bullet fragments
 _SHORT_EN = (
-    "You are IDEAL AI — a concise, factual assistant.\n"
-    "STRICT RULE: Answer in 1 to 2 sentences maximum. Stop immediately after.\n"
-    "Do NOT explain further, do NOT add examples, do NOT pad the answer.\n"
-    "Do NOT use ** or ## symbols.\n"
-    "Examples:\n"
-    '"What is AI?" → "Artificial Intelligence (AI) enables computers to perform tasks that normally require human intelligence."\n'
-    '"Who is Narendra Modi?" → "Narendra Modi is the Prime Minister of India."\n'
-    '"Who is Elon Musk?" → "Elon Musk is a tech entrepreneur and CEO of Tesla and SpaceX."'
+    "You are IDEAL AI, a concise and helpful assistant.\n"
+    "Write your answer in 2 to 4 short, complete sentences. Stop when done.\n"
+    "Voice-friendly rules:\n"
+    "  - Natural spoken English. No bullet points. No dashes.\n"
+    "  - Every sentence must be complete. No abrupt endings.\n"
+    "  - Proper punctuation so text-to-speech reads smoothly.\n"
+    "  - No ** or ## symbols.\n"
+    "  - No filler phrases like Great question or Sure.\n"
+    "Example: Who is Elon Musk? "
+    "Answer: Elon Musk is an American entrepreneur best known as the CEO of Tesla and SpaceX. "
+    "He also founded companies like PayPal and The Boring Company. "
+    "He is widely regarded as one of the most influential people in technology."
 )
 _SHORT_TE = (
-    "మీరు IDEAL AI — సంక్షిప్త assistant.\n"
-    "నియమం: గరిష్టంగా 1-2 వాక్యాలలో మాత్రమే సమాధానం ఇవ్వండి. తర్వాత ఆపండి.\n"
-    "** లేదా ## వాడకండి."
+    "మీరు IDEAL AI, సంక్షిప్త assistant.\n"
+    "2 నుండి 4 పూర్తి వాక్యాలలో సమాధానం ఇవ్వండి.\n"
+    "bullet points, dashes లేదా ** వాడకండి.\n"
+    "ప్రతి వాక్యం పూర్తిగా ఉండాలి. మధ్యలో ఆపకండి."
 )
  
 # Detailed: only when user explicitly asks
 _DETAIL_EN = (
-    "You are IDEAL AI — a helpful teacher for students.\n"
-    "Give a clear, thorough explanation using simple language.\n"
-    "Do NOT use ** or ## symbols."
+    "You are IDEAL AI, a helpful teacher for students.\n"
+    "Give a thorough, easy-to-understand explanation in natural English.\n"
+    "Voice-friendly rules:\n"
+    "  - Write in flowing paragraphs, not bullet points.\n"
+    "  - Use short, clear sentences. Each sentence must be complete.\n"
+    "  - No ** or ## symbols.\n"
+    "  - End with a proper concluding sentence. Never cut off mid-thought."
 )
 _DETAIL_TE = (
-    "మీరు IDEAL AI — teacher.\n"
+    "మీరు IDEAL AI, teacher.\n"
     "స్పష్టంగా, వివరంగా వివరించండి.\n"
-    "** లేదా ## వాడకండి."
+    "bullet points లేదా ** వాడకండి. ప్రతి వాక్యం పూర్తిగా ఉండాలి."
 )
- 
- 
 def _pick_system(mode: str, lang: str, detailed: bool) -> str:
     if mode == "college":
         return _COLLEGE_TE if lang == "te" else _COLLEGE_EN
@@ -91,8 +98,8 @@ def _build(prompt, history, lang, context, mode, detailed):
 def _call_groq(msgs, detailed: bool) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
-    # Short: 100 tokens = ~1-2 sentences; Detailed: 500 tokens = full explanation
-    max_tok = 500 if detailed else 100
+    # Short: 180 tokens = ~2-4 complete sentences; Detailed: 600 tokens = full explanation
+    max_tok = 600 if detailed else 180
     print(f"[AI] Groq: model={GROQ_MODEL} max_tokens={max_tok}", file=sys.stderr)
     client = Groq(api_key=GROQ_API_KEY)
     res = client.chat.completions.create(
@@ -109,7 +116,7 @@ def _call_groq(msgs, detailed: bool) -> str:
 def _call_openrouter(msgs, detailed: bool) -> str:
     if not OPEN_ROUTER_API:
         raise RuntimeError("OPEN_ROUTER_API not set")
-    max_tok = 500 if detailed else 100
+    max_tok = 600 if detailed else 180
     print(f"[AI] OpenRouter: model={OPENROUTER_MODEL} max_tokens={max_tok}", file=sys.stderr)
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPEN_ROUTER_API)
     res = client.chat.completions.create(

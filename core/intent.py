@@ -25,6 +25,8 @@ COLLEGE_KEYWORDS = [
     "principal", "vice principal", "hod", "head of department",
     "faculty", "staff", "teacher", "professor",
     "director", "academic director", "administrative director",
+    "admin director", "acadimic", "acadamic",
+    "administation", "adminstration", "administration director",
     "satyanarayana", "ranjith", "vasu", "kama raju",
     "exam incharge", "suresh kumar",
     "course", "courses", "bca", "bsc", "bba", "mca", "msc",
@@ -669,4 +671,3 @@ def classify_intent_with_context(message: str, context: Dict) -> Dict:
     context["intent"] = "general"
     context["topic"]  = " ".join(cw[:4]) if cw else ""
     return {"intent": "general"}
- 

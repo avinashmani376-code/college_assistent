@@ -7,6 +7,7 @@ Rules:
 - AI only as last resort (DB total miss). ONE call, strict context.
 """
 import os
+import re
 import logging
 from data.college_data import COLLEGE_DATABASE
  
@@ -23,7 +24,9 @@ except Exception:
 TRIGGER_WORDS = [
     "ideal", "college", "campus", "kakinada college", "vidyuth nagar",
     "director", "academic director", "administrative director",
-    "principal", "vice principal",
+    "admin director", "acadimic", "acadamic", "administation",
+    "adminstration",
+    "principal", "vice principal", "vp",
     "hod", "head of department", "head of dept",
     "faculty", "staff", "professor",
     "ranjith", "vasu", "satyanarayana", "kama raju",
@@ -40,10 +43,11 @@ TRIGGER_WORDS = [
 ]
  
 _EXTRA_GATE_WORDS = [
-    "principal", "vice principal", "hod", "head of department",
+    "principal", "vice principal", "vp", "hod", "head of department",
     "head of dept", "department head", "who heads",
     "director", "ranjith", "vasu", "satyanarayana", "kama raju",
-    "academic", "administrative", "exam incharge",
+    "academic", "administrative", "admin", "exam incharge",
+    "acadimic", "acadamic", "administation", "adminstration",
     # Developer / system questions
     "developer", "developed", "avinash", "pavan", "created by", "built by",
     "designed by", "invented by", "who made", "who built", "who created", "who designed",
@@ -580,88 +584,92 @@ def _quick(q: str, lang: str):
     if not isinstance(gen, dict):
         return None
  
-    # ── Entity extraction: strip filler, match LONGEST entity first ─────────
-    # This handles all natural phrasings:
-    #   "Who is the Vice Principal?" / "Vice Principal" / "Tell me the Principal"
-    # Longest entities are checked BEFORE shorter overlapping ones.
+    # ── Smart entity matching: typo-tolerant, longest-match-first ──────────
+    # Strips filler words and uses token-set matching so word order and
+    # common spelling variations ("acadimic", "administation", etc.) all work.
  
-    _FILLER = {
-        "who", "is", "the", "a", "an", "tell", "me", "please", "can", "you",
-        "what", "about", "our", "this", "college", "ideal", "kakinada",
-        "give", "information", "explain", "describe", "say", "name",
-        "of", "at", "in", "for", "and", "or", "are", "was", "were",
-        "heads", "head", "sir", "madam", "mr", "ms", "dr",
-    }
+    def _toks(text):
+        return set(re.sub(r"[^a-z\s]", "", text.lower()).split())
  
-    def _strip_filler(text: str) -> str:
-        """Remove filler words and return the core entity."""
-        tokens = [w.strip("?.!,") for w in text.lower().split()]
-        kept = [w for w in tokens if w not in _FILLER and w]
-        return " ".join(kept)
+    q_toks = _toks(q)
  
-    core = _strip_filler(q)  # e.g. "who is the vice principal?" → "vice principal"
+    def _has(tokens, *required):
+        return all(any(t.startswith(r) for t in tokens) for r in required)
  
-    # Ordered longest-first so "vice principal" beats "principal",
-    # "administrative director" beats "director", etc.
-    _ENTITY_MAP = [
-        # (entity_keywords, db_key, te_template, en_template)
-        (
-            ["vice principal", "vice-principal"],
-            "vice_principal",
-            lambda n: f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {n} గారు.",
-            lambda n: f"The Vice Principal of Ideal College is {n}.",
-        ),
-        (
-            ["academic director"],
-            "academic_director",
-            lambda n: f"Academic Director: {n}.",
-            lambda n: f"The Academic Director of Ideal College is {n}.",
-        ),
-        (
-            ["administrative director", "admin director"],
-            "administrative_director",
-            lambda n: f"Administrative Director: {n}.",
-            lambda n: f"The Administrative Director of Ideal College is {n}.",
-        ),
-        (
-            ["principal"],
-            "principal",
-            lambda n: f"మన కాలేజీ ప్రిన్సిపల్ {n} గారు.",
-            lambda n: f"The Principal of Ideal College is {n}.",
-        ),
-        (
-            ["ranjith"],
-            "academic_director",
-            lambda n: f"Academic Director: {n}.",
-            lambda n: f"The Academic Director of Ideal College is {n}.",
-        ),
-        (
-            ["vasu"],
-            "administrative_director",
-            lambda n: f"Administrative Director: {n}.",
-            lambda n: f"The Administrative Director of Ideal College is {n}.",
-        ),
-        (
-            ["kama raju", "kama"],
-            "vice_principal",
-            lambda n: f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {n} గారు.",
-            lambda n: f"The Vice Principal of Ideal College is {n}.",
-        ),
-        (
-            ["satyanarayana"],
-            "principal",
-            lambda n: f"మన కాలేజీ ప్రిన్సిపల్ {n} గారు.",
-            lambda n: f"The Principal of Ideal College is {n}.",
-        ),
-    ]
+    # Named-person shortcuts — fastest path
+    if "ranjith" in q_toks:
+        name = gen.get("academic_director", "Ranjith Sir")
+        return (f"Academic Director: {name}." if lang == "te"
+                else f"The Academic Director of Ideal College is {name}.")
+    if "vasu" in q_toks and "satyanarayana" not in q_toks:
+        name = gen.get("administrative_director", "Vasu Sir")
+        return (f"Administrative Director: {name}." if lang == "te"
+                else f"The Administrative Director of Ideal College is {name}.")
+    if any(k in q_toks for k in ("kama", "kamaraju")):
+        vp = gen.get("vice_principal", "Mr. V. Kama Raju")
+        return (f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు." if lang == "te"
+                else f"The Vice Principal of Ideal College is {vp}.")
+    if "satyanarayana" in q_toks:
+        name = gen.get("principal", "Dr. T. Satyanarayana")
+        return (f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు." if lang == "te"
+                else f"The Principal of Ideal College is {name}.")
  
-    for keywords, db_key, te_fn, en_fn in _ENTITY_MAP:
-        # Match against both original q and stripped core
-        if any(kw in q for kw in keywords) or any(kw in core for kw in keywords):
-            name = gen.get(db_key, "")
-            if name:
-                return te_fn(name) if lang == "te" else en_fn(name)
+    # ── Vice Principal — check BEFORE principal ─────────────────────────
+    # Matches: vice principal, vice-principal, vp, assistant principal,
+    #          vise principal, vic principal, vice princi
+    _vp_match = (
+        (_has(q_toks, "vice", "princ"))
+        or ("vp" in q_toks and "principal" not in q_toks - {"vp"})
+        or (_has(q_toks, "assist", "princ"))
+        or any(s in q for s in ("vice principal", "vice-principal",
+                                "vise principal", "vic principal",
+                                "vice princi", "assistant principal"))
+    )
+    if _vp_match:
+        vp = gen.get("vice_principal", "")
+        if vp:
+            return (f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు." if lang == "te"
+                    else f"The Vice Principal of Ideal College is {vp}.")
  
+    # ── Academic Director — check BEFORE bare "director" ────────────────
+    # Matches: academic director, acadimic director, acadamic director,
+    #          director academics, head of academics, director academic
+    _acad_match = (
+        (_has(q_toks, "acad") and _has(q_toks, "direct"))
+        or (_has(q_toks, "acad") and _has(q_toks, "head"))
+        or any(s in q for s in ("academic director", "acadimic director",
+                                "acadamic director", "academics director",
+                                "director academic", "head of academic",
+                                "academic head", "director academics"))
+    )
+    if _acad_match:
+        name = gen.get("academic_director", "Ranjith Sir")
+        return (f"Academic Director: {name}." if lang == "te"
+                else f"The Academic Director of Ideal College is {name}.")
+ 
+    # ── Administrative Director — check BEFORE bare "director" ──────────
+    # Matches: administrative director, administration director,
+    #          admin director, administation director, adminstration director,
+    #          administrative head
+    _admin_match = (
+        (_has(q_toks, "admin") and _has(q_toks, "direct"))
+        or (_has(q_toks, "admin") and _has(q_toks, "head"))
+        or any(s in q for s in ("administrative director",
+                                "administration director", "admin director",
+                                "administation director", "adminstration director",
+                                "administrative head", "admin head"))
+    )
+    if _admin_match:
+        name = gen.get("administrative_director", "Vasu Sir")
+        return (f"Administrative Director: {name}." if lang == "te"
+                else f"The Administrative Director of Ideal College is {name}.")
+ 
+    # ── Principal ────────────────────────────────────────────────────────
+    if any(t.startswith("princ") for t in q_toks):
+        name = gen.get("principal", "")
+        if name:
+            return (f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు." if lang == "te"
+                    else f"The Principal of Ideal College is {name}.")
     # Bare "director" without qualifier → show both
     if "director" in q and "academic" not in q and "administrative" not in q:
         acad  = gen.get("academic_director", "Ranjith Sir")

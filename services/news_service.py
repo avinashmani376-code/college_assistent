@@ -196,8 +196,11 @@ _TOPIC_SYNONYMS: Dict[str, List[str]] = {
                        "patient", "clinical", "pharma", "drug"],
     # Education
     "education":      ["education", "school", "college", "university", "student",
-                       "exam", "syllabus", "teacher", "cbse", "neet", "jee",
-                       "board exam", "result", "admission"],
+                       "students", "exam", "syllabus", "teacher", "cbse", "neet", "jee",
+                       "board exam", "result", "admission", "academic", "curriculum"],
+    "indian students": ["student", "students", "indian student", "school",
+                        "college student", "university student", "education india",
+                        "cbse", "neet", "jee", "board exam", "scholarship"],
     # Politics
     "politics":       ["politics", "election", "vote", "parliament", "minister",
                        "government", "political party", "campaign", "poll",
@@ -246,15 +249,33 @@ def _is_relevant(article: Dict, topic: str) -> bool:
     return any(term in text for term in _get_filter_terms(topic))
  
  
+def _dedup_articles(articles: List[Dict]) -> List[Dict]:
+    """Remove duplicate headlines, keeping first occurrence of each unique title."""
+    seen: set = set()
+    unique: List[Dict] = []
+    for a in articles:
+        title = (a.get("title") or "").strip().lower()
+        # Normalise: keep only alphanumeric chars, collapse spaces
+        key = re.sub(r"[^a-z0-9]", " ", title)
+        key = " ".join(key.split())   # collapse whitespace
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(a)
+    return unique
+ 
+ 
 def _filter_articles(articles: List[Dict], topic: str) -> List[Dict]:
     """
-    Keep only articles relevant to topic. Returns up to 5.
-    Logs each keep/drop decision for debugging.
+    1. Deduplicate by title.
+    2. Keep only articles relevant to topic.
+    3. Return up to 5 unique relevant articles.
     """
-    if not topic:
-        return articles[:5]   # no topic = generic headlines, no filtering needed
+    articles = _dedup_articles(articles)
  
-    kept   = []
+    if not topic:
+        return articles[:5]   # generic headlines — no topic filter
+ 
+    kept    = []
     dropped = 0
     for a in articles:
         if _is_relevant(a, topic):
@@ -277,10 +298,6 @@ def _filter_articles(articles: List[Dict], topic: str) -> List[Dict]:
         file=sys.stderr,
     )
     return kept
- 
- 
-# ── Helpers ───────────────────────────────────────────────────────────────
- 
 def _extract_search_query(user_message: str) -> str:
     """
     Strip noise words and return the clean search topic.
