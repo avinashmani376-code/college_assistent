@@ -619,17 +619,17 @@ def _quick(q: str, lang: str):
     #          vise principal, vic principal, vice princi
     _vp_match = (
         (_has(q_toks, "vice", "princ"))
-        or ("vp" in q_toks and "principal" not in q_toks - {"vp"})
+        or ("vp" in q_toks)
         or (_has(q_toks, "assist", "princ"))
         or any(s in q for s in ("vice principal", "vice-principal",
                                 "vise principal", "vic principal",
                                 "vice princi", "assistant principal"))
     )
     if _vp_match:
-        vp = gen.get("vice_principal", "")
-        if vp:
-            return (f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు." if lang == "te"
-                    else f"The Vice Principal of Ideal College is {vp}.")
+        # Use default so missing DB key still works
+        vp = gen.get("vice_principal") or "Mr. V. Kama Raju"
+        return (f"Vice Principal: {vp}" if lang == "te"
+                else f"Vice Principal: {vp}")
  
     # ── Academic Director — check BEFORE bare "director" ────────────────
     # Matches: academic director, acadimic director, acadamic director,
@@ -643,9 +643,8 @@ def _quick(q: str, lang: str):
                                 "academic head", "director academics"))
     )
     if _acad_match:
-        name = gen.get("academic_director", "Ranjith Sir")
-        return (f"Academic Director: {name}." if lang == "te"
-                else f"The Academic Director of Ideal College is {name}.")
+        name = gen.get("academic_director") or "Ranjith Sir"
+        return f"Academic Director: {name}"
  
     # ── Administrative Director — check BEFORE bare "director" ──────────
     # Matches: administrative director, administration director,
@@ -660,16 +659,13 @@ def _quick(q: str, lang: str):
                                 "administrative head", "admin head"))
     )
     if _admin_match:
-        name = gen.get("administrative_director", "Vasu Sir")
-        return (f"Administrative Director: {name}." if lang == "te"
-                else f"The Administrative Director of Ideal College is {name}.")
+        name = gen.get("administrative_director") or "Vasu Sir"
+        return f"Administrative Director: {name}"
  
     # ── Principal ────────────────────────────────────────────────────────
     if any(t.startswith("princ") for t in q_toks):
-        name = gen.get("principal", "")
-        if name:
-            return (f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు." if lang == "te"
-                    else f"The Principal of Ideal College is {name}.")
+        name = gen.get("principal") or "Dr. T. Satyanarayana"
+        return f"Principal: {name}"
     # Bare "director" without qualifier → show both
     if "director" in q and "academic" not in q and "administrative" not in q:
         acad  = gen.get("academic_director", "Ranjith Sir")

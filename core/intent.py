@@ -506,41 +506,40 @@ def classify_intent(message: str) -> Dict:
 def _is_self_contained(msg: str, weather_score: int, college_score: int,
                         has_news: bool, has_search: bool, cw: list) -> bool:
     """
-    Returns True when the current message is self-contained — it has a
-    clear intent and subject on its own, so previous context must be
-    completely ignored.
+    Returns True when the current message is self-contained — has a clear
+    intent of its own, so previous context must NOT be injected.
  
-    A message is self-contained when ANY of these is true:
-      - It has a weather signal (city + weather keyword)
-      - It has a news signal with a topic
-      - It has a college signal
-      - It has 3+ meaningful content words (clear subject present)
-      - It contains a named entity signal (capitalised word that is NOT
-        a sentence-start-only capital, i.e. appears mid-sentence OR the
-        message is multi-word and starts with a capital proper noun)
+    Priority rules:
+    1. Any weather keyword → always self-contained
+    2. Any college keyword (score >= 1) → always self-contained
+       This includes: principal, vice principal, hod, director, faculty, fees, hostel...
+    3. News query → self-contained
+    4. 3+ content words → self-contained (has its own subject)
+    5. 2 content words → self-contained (enough to stand alone)
     """
-    # Strong explicit intent signals always win
+    # Weather always wins
     if weather_score >= 1:
         return True
-    if college_score >= 2:          # strong college match
-        return True
-    if has_news and any(                # news with its own topic
-        re.search(pat, msg, re.IGNORECASE) and
-        any(g for g in (re.search(pat, msg, re.IGNORECASE).groups() or []) if g)
-        for pat in _NEWS_PATTERNS
-    ):
+ 
+    # ANY college signal → self-contained. Threshold is 1, not 2.
+    # "Principal", "Who is the Principal?", "Vice Principal" all score >= 1.
+    if college_score >= 1:
         return True
  
-    # 3+ content words → message carries its own subject
-    if len(cw) >= 3:
+    # News with own topic → self-contained
+    if has_news:
         return True
  
-    # 2 content words where at least one looks like a proper noun
-    # (original text has a capital mid-sentence or is a known named entity)
+    # 2+ content words → has its own subject
     if len(cw) >= 2:
-        return True          # 2 content words is enough to be self-contained
+        return True
+ 
+    # Single content word — self-contained only if it is NOT a pronoun
+    if len(cw) == 1 and cw[0] not in _PRONOUNS:
+        return True
  
     return False
+ 
  
  
 def classify_intent_with_context(message: str, context: Dict) -> Dict:
