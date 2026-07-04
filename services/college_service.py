@@ -261,14 +261,12 @@ def _fmt_faculty(data, q: str) -> str:
             d = depts[k]
             dept_name = d.get("name", k.replace("_", " ").title())
             if _is_hod_query:
-                # Return only HOD info for HOD-specific queries
+                # Return only HOD name — no dept list, no extra info
                 if d.get("hod"):
-                    return f"The HOD of {dept_name} is {d['hod']}."
+                    return f"HOD: {d['hod']}"
                 if d.get("hods"):
-                    lines = []
-                    for hk, hv in d["hods"].items():
-                        lines.append(f"HOD ({hk.upper()}): {hv}")
-                    return "\n".join(lines)
+                    # Multiple HODs for this dept: return each on one line
+                    return "\n".join(f"HOD: {hv}" for hv in d["hods"].values())
                 return f"Please contact the college for {dept_name} HOD details."
             else:
                 lines = [f"🏫 {dept_name}"]

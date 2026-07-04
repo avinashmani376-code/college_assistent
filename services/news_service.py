@@ -176,6 +176,20 @@ _TOPIC_SYNONYMS: Dict[str, List[str]] = {
                        "ccp", "taiwan", "hong kong"],
     "ukraine":        ["ukraine", "ukrainian", "kyiv", "zelensky", "russia",
                        "war", "nato", "ceasefire"],
+    "europe":         ["europe", "european", "eu", "brussels", "berlin",
+                       "paris", "london", "amsterdam", "madrid", "rome",
+                       "france", "germany", "italy", "spain", "uk",
+                       "britain", "netherlands", "poland", "sweden",
+                       "european union", "eurozone", "ecb", "nato"],
+    "usa":            ["usa", "united states", "america", "american",
+                       "washington", "white house", "congress", "senate",
+                       "trump", "biden", "democrat", "republican"],
+    "middle east":    ["middle east", "israel", "palestine", "gaza",
+                       "iran", "iraq", "saudi", "dubai", "uae",
+                       "arab", "jordan", "lebanon", "yemen"],
+    "asia":           ["asia", "asian", "china", "japan", "korea",
+                       "singapore", "malaysia", "thailand", "vietnam",
+                       "indonesia", "philippines", "myanmar", "sri lanka"],
     # Science / space
     "space":          ["space", "nasa", "isro", "rocket", "satellite", "moon",
                        "mars", "orbit", "spacecraft", "astronaut", "launch",
@@ -540,6 +554,19 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
  
     search_query = _extract_search_query(user_message)
     print(f"[NEWS] search_query extracted: {search_query!r}", file=sys.stderr)
+ 
+    # ── "News about" with no topic → ask user ───────────────────────────
+    # Detects: "news about", "news about " with nothing meaningful after it.
+    _msg_clean = user_message.strip().lower()
+    _is_bare_about = (
+        search_query == ""
+        and re.search(r"\babout\b", _msg_clean)
+        and not re.search(r"\babout\s+\w{3,}", _msg_clean)
+    )
+    if _is_bare_about:
+        msg = "Which topic would you like news about? For example: AI, petrol, India, sports."
+        print(f"[NEWS] bare 'news about' → asking user for topic", file=sys.stderr)
+        return _make_sentinel(msg), "ASK_TOPIC"
  
     # ── Specific topic ────────────────────────────────────────────────────
     if search_query:
