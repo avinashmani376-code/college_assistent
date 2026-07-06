@@ -176,20 +176,6 @@ _TOPIC_SYNONYMS: Dict[str, List[str]] = {
                        "ccp", "taiwan", "hong kong"],
     "ukraine":        ["ukraine", "ukrainian", "kyiv", "zelensky", "russia",
                        "war", "nato", "ceasefire"],
-    "europe":         ["europe", "european", "eu", "brussels", "berlin",
-                       "paris", "london", "amsterdam", "madrid", "rome",
-                       "france", "germany", "italy", "spain", "uk",
-                       "britain", "netherlands", "poland", "sweden",
-                       "european union", "eurozone", "ecb", "nato"],
-    "usa":            ["usa", "united states", "america", "american",
-                       "washington", "white house", "congress", "senate",
-                       "trump", "biden", "democrat", "republican"],
-    "middle east":    ["middle east", "israel", "palestine", "gaza",
-                       "iran", "iraq", "saudi", "dubai", "uae",
-                       "arab", "jordan", "lebanon", "yemen"],
-    "asia":           ["asia", "asian", "china", "japan", "korea",
-                       "singapore", "malaysia", "thailand", "vietnam",
-                       "indonesia", "philippines", "myanmar", "sri lanka"],
     # Science / space
     "space":          ["space", "nasa", "isro", "rocket", "satellite", "moon",
                        "mars", "orbit", "spacecraft", "astronaut", "launch",
@@ -555,19 +541,6 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
     search_query = _extract_search_query(user_message)
     print(f"[NEWS] search_query extracted: {search_query!r}", file=sys.stderr)
  
-    # ── "News about" with no topic → ask user ───────────────────────────
-    # Detects: "news about", "news about " with nothing meaningful after it.
-    _msg_clean = user_message.strip().lower()
-    _is_bare_about = (
-        search_query == ""
-        and re.search(r"\babout\b", _msg_clean)
-        and not re.search(r"\babout\s+\w{3,}", _msg_clean)
-    )
-    if _is_bare_about:
-        msg = "Which topic would you like news about? For example: AI, petrol, India, sports."
-        print(f"[NEWS] bare 'news about' → asking user for topic", file=sys.stderr)
-        return _make_sentinel(msg), "ASK_TOPIC"
- 
     # ── Specific topic ────────────────────────────────────────────────────
     if search_query:
         print(f"[NEWS] Specific topic → /search", file=sys.stderr)
@@ -617,11 +590,11 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
  
 def summarize_news(articles: List[Dict], lang: str = "en") -> str:
     """
-    Format articles as:
+    Format each article as:
       📰 Headline
-      📌 What happened (2-3 sentences)
-      🌍 Why it matters (1 sentence)
-      🔗 Source
+      Source: <name>
+      Summary: (2-3 sentences)
+      Why it matters: (1 sentence)
  
     Handles sentinel dicts returned by fetch_news when list is empty or error.
     router.py calls this with whatever fetch_news returned — no changes needed there.
@@ -650,26 +623,25 @@ def summarize_news(articles: List[Dict], lang: str = "en") -> str:
         if not title:
             continue
  
-        what = _simplify(desc, max_sentences=3, max_words=50)
-        if not what:
-            what = _simplify(title, max_sentences=1, max_words=25)
+        summary = _simplify(desc, max_sentences=3, max_words=50)
+        if not summary:
+            summary = _simplify(title, max_sentences=1, max_words=25)
  
         why = _why_matters(title, desc, topic)
  
-        blocks.append(
+        block = (
             f"📰 {title}\n"
-            f"📌 What happened:\n{what}\n"
-            f"🌍 Why it matters:\n{why}\n"
-            f"🔗 Source: {source}"
+            f"Source: {source}\n"
+            f"Summary:\n{summary}\n"
+            f"Why it matters:\n{why}"
         )
+        blocks.append(block)
  
     if not blocks:
         return "Unable to fetch the latest news."
  
     header = "📰 తాజా వార్తలు\n\n" if lang == "te" else "📰 Latest News\n\n"
     return header + "\n\n─────────────\n\n".join(blocks)
- 
- 
 def format_news_response(articles: List[Dict], provider: str, lang: str = "en") -> str:
     """
     Legacy wrapper — kept for backward compatibility.
