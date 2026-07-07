@@ -1,3 +1,4 @@
+
 # services/news_service.py
 """
 News service — GNews API ONLY.
@@ -84,28 +85,73 @@ _TOPIC_MAP = {
  
 # ── "Why it matters" one-liners ───────────────────────────────────────────
 _WHY_MATTERS = {
+    # Technology
+    "artificial intelligence": "AI is rapidly changing how people work, learn, and communicate.",
+    "machine learning": "Machine learning is reshaping industries and daily technology.",
     "technology":    "It affects how we use technology in our daily lives.",
     "tech":          "It affects how we use technology in our daily lives.",
     "ai":            "AI is rapidly changing how people work and learn.",
-    "education":     "It directly impacts students and schools across India.",
-    "sports":        "It is important for Indian sports fans.",
-    "sport":         "It is important for Indian sports fans.",
-    "cricket":       "It matters to millions of cricket fans across India.",
-    "ipl":           "IPL is India's biggest cricket event followed by millions.",
-    "business":      "It affects jobs, prices, and the Indian economy.",
-    "finance":       "It affects jobs, prices, and the Indian economy.",
-    "health":        "It affects the health and well-being of people.",
-    "science":       "It helps us understand the world and improve our lives.",
-    "space":         "It shows India's growing strength in science and space.",
-    "politics":      "It shapes how India is governed.",
-    "election":      "It decides who will lead and make decisions for India.",
-    "environment":   "It affects the air, water, and nature around us.",
-    "climate":       "It affects weather, farming, and life on Earth.",
+    "software":      "Software changes affect how millions of people use their devices.",
+    "startup":       "Startups drive innovation and create new jobs in the economy.",
+    # Entertainment & Film
+    "box office":    "Box office results reflect audience interest in entertainment.",
+    "bollywood":     "Bollywood films reach hundreds of millions of viewers across India.",
+    "tollywood":     "Telugu cinema is one of India's biggest film industries.",
+    "kollywood":     "Tamil cinema has a massive fan base across South India.",
+    "movie":         "Films shape culture and entertain millions of viewers.",
+    "film":          "Films shape culture and entertain millions of viewers.",
+    "cinema":        "Cinema reflects and influences popular culture across India.",
+    "actor":         "Film stars have a huge cultural influence across India.",
+    "actress":       "Film stars have a huge cultural influence across India.",
+    "prabhas":       "Prabhas is one of India's biggest pan-India film stars.",
+    "rajinikanth":   "Rajinikanth is one of India's most iconic film personalities.",
+    "entertainment": "Entertainment news reflects what audiences are watching and enjoying.",
+    # Fuel & Energy
+    "petrol":        "Petrol prices directly affect travel costs and everyday expenses.",
+    "diesel":        "Diesel prices affect transportation and the cost of goods.",
+    "fuel":          "Fuel prices affect transportation costs and daily life across India.",
+    "crude oil":     "Crude oil prices drive fuel costs and inflation globally.",
+    "oil":           "Oil prices influence fuel costs and the broader economy.",
+    "energy":        "Energy policy affects electricity prices and daily life.",
+    # Finance & Economy
+    "bitcoin":       "Cryptocurrency markets affect global financial investments.",
+    "crypto":        "Cryptocurrency affects global financial markets and investments.",
+    "stock":         "Stock market movements affect savings and investments.",
     "economy":       "It impacts the cost of living and job opportunities.",
-    "petrol":        "Fuel prices affect transportation costs and daily life.",
-    "bitcoin":       "Cryptocurrency affects global financial markets.",
+    "inflation":     "Inflation affects purchasing power and the cost of everyday goods.",
+    "finance":       "It affects jobs, prices, and the Indian economy.",
+    "business":      "It affects jobs, prices, and the Indian economy.",
+    # Governance & Politics
+    "election":      "Elections decide who will lead and make decisions for India.",
+    "politics":      "Political developments shape how India is governed.",
+    "government":    "Government decisions directly affect laws, policies, and public life.",
+    "parliament":    "Parliamentary decisions shape the laws that affect every citizen.",
+    "court":         "Court rulings set legal precedents that affect rights and governance.",
+    "policy":        "Policy changes affect how laws and services are delivered to citizens.",
+    # Sports
+    "ipl":           "IPL is India's biggest cricket event followed by millions.",
+    "cricket":       "Cricket is India's most popular sport with hundreds of millions of fans.",
+    "sports":        "It is important for sports fans across India.",
+    "sport":         "It is important for sports fans across India.",
+    "football":      "Football is rapidly growing in popularity across India.",
+    "olympics":      "The Olympics represent global athletic achievement and national pride.",
+    # Science & Environment
+    "space":         "It reflects India's growing strength in science and space exploration.",
+    "science":       "Scientific advances help us understand the world and improve lives.",
+    "environment":   "It affects the air, water, and natural world around us.",
+    "climate":       "Climate change affects weather, farming, and life on Earth.",
+    "health":        "It affects the health and well-being of people across the country.",
+    "medicine":      "Medical advances save lives and improve public health.",
+    # Notable people
     "tesla":         "Tesla influences the global electric vehicle industry.",
     "elon musk":     "Elon Musk's decisions impact technology and global markets.",
+    "modi":          "Prime ministerial decisions shape India's policies and direction.",
+    # Education
+    "education":     "It directly impacts students, schools, and the future of learning in India.",
+    "student":       "It affects students and their education across the country.",
+    "scholarship":   "Scholarships help students access better educational opportunities.",
+    "university":    "It affects higher education and opportunities for students.",
+    # Default fallback
     "default":       "It is an important development that affects many people.",
 }
  
@@ -264,40 +310,67 @@ def _dedup_articles(articles: List[Dict]) -> List[Dict]:
     return unique
  
  
+# ── India topic: deprioritise pure sports/entertainment ─────────────────
+_INDIA_LOW_PRIORITY_TERMS = {
+    "ipl", "cricket", "bollywood", "box office", "film", "movie",
+    "actor", "actress", "celebrity", "entertainment", "match",
+    "tournament", "trophy", "league", "season", "sports",
+}
+ 
+_INDIA_HIGH_PRIORITY_TERMS = {
+    "government", "parliament", "policy", "ministry", "minister",
+    "budget", "economy", "gdp", "inflation", "election", "vote",
+    "court", "supreme court", "high court", "law", "bill",
+    "national", "modi", "bjp", "congress", "technology",
+    "startup", "investment", "infrastructure", "health",
+    "education", "railway", "defence", "border",
+}
+ 
+ 
+def _india_priority_score(article: Dict) -> int:
+    """Higher score = shown first for India queries."""
+    text = ((article.get("title") or "") + " " +
+            (article.get("description") or "")).lower()
+    hi = sum(1 for t in _INDIA_HIGH_PRIORITY_TERMS if t in text)
+    lo = sum(1 for t in _INDIA_LOW_PRIORITY_TERMS if t in text)
+    if hi > 0:
+        return 1
+    if lo > 0 and hi == 0:
+        return -1
+    return 0
+ 
+ 
 def _filter_articles(articles: List[Dict], topic: str) -> List[Dict]:
     """
     1. Deduplicate by title.
     2. Keep only articles relevant to topic.
-    3. Return up to 5 unique relevant articles.
+    3. For India topic: sort national/govt/economy articles first.
+    4. Return up to 5 unique relevant articles.
     """
     articles = _dedup_articles(articles)
  
     if not topic:
-        return articles[:5]   # generic headlines — no topic filter
+        return articles[:5]
  
     kept    = []
     dropped = 0
     for a in articles:
         if _is_relevant(a, topic):
             kept.append(a)
-            print(
-                f"[NEWS FILTER] KEEP: {a.get('title', '')[:70]!r}",
-                file=sys.stderr,
-            )
-            if len(kept) == 5:
-                break
+            print(f"[NEWS FILTER] KEEP: {a.get('title', '')[:70]!r}", file=sys.stderr)
         else:
             dropped += 1
-            print(
-                f"[NEWS FILTER] DROP: {a.get('title', '')[:70]!r}",
-                file=sys.stderr,
-            )
+            print(f"[NEWS FILTER] DROP: {a.get('title', '')[:70]!r}", file=sys.stderr)
  
-    print(
-        f"[NEWS FILTER] topic={topic!r} kept={len(kept)} dropped={dropped}",
-        file=sys.stderr,
-    )
-    return kept
+    # India queries: sort national/govt/economy first, sports/entertainment last
+    if topic.strip().lower() in ("india", "indian"):
+        kept.sort(key=_india_priority_score, reverse=True)
+        print("[NEWS FILTER] India topic: national-priority sorting applied",
+              file=sys.stderr)
+ 
+    print(f"[NEWS FILTER] topic={topic!r} kept={len(kept)} dropped={dropped}",
+          file=sys.stderr)
+    return kept[:5]
 def _extract_search_query(user_message: str) -> str:
     """
     Strip noise words and return the clean search topic.
@@ -590,11 +663,11 @@ def fetch_news(user_message: str = "") -> Tuple[List[Dict], str]:
  
 def summarize_news(articles: List[Dict], lang: str = "en") -> str:
     """
-    Format each article as:
+    Format articles as:
       📰 Headline
-      Source: <name>
-      Summary: (2-3 sentences)
-      Why it matters: (1 sentence)
+      📌 What happened (2-3 sentences)
+      🌍 Why it matters (1 sentence)
+      🔗 Source
  
     Handles sentinel dicts returned by fetch_news when list is empty or error.
     router.py calls this with whatever fetch_news returned — no changes needed there.
@@ -623,25 +696,26 @@ def summarize_news(articles: List[Dict], lang: str = "en") -> str:
         if not title:
             continue
  
-        summary = _simplify(desc, max_sentences=3, max_words=50)
-        if not summary:
-            summary = _simplify(title, max_sentences=1, max_words=25)
+        what = _simplify(desc, max_sentences=3, max_words=50)
+        if not what:
+            what = _simplify(title, max_sentences=1, max_words=25)
  
         why = _why_matters(title, desc, topic)
  
-        block = (
+        blocks.append(
             f"📰 {title}\n"
-            f"Source: {source}\n"
-            f"Summary:\n{summary}\n"
-            f"Why it matters:\n{why}"
+            f"📌 What happened:\n{what}\n"
+            f"🌍 Why it matters:\n{why}\n"
+            f"🔗 Source: {source}"
         )
-        blocks.append(block)
  
     if not blocks:
         return "Unable to fetch the latest news."
  
     header = "📰 తాజా వార్తలు\n\n" if lang == "te" else "📰 Latest News\n\n"
     return header + "\n\n─────────────\n\n".join(blocks)
+ 
+ 
 def format_news_response(articles: List[Dict], provider: str, lang: str = "en") -> str:
     """
     Legacy wrapper — kept for backward compatibility.

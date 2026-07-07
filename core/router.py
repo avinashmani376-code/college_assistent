@@ -1,4 +1,3 @@
-
 """
 core/router.py
  
@@ -182,22 +181,85 @@ def _empty(text: str) -> bool:
     return any(p in text.lower() for p in ["couldn't find", "rephrase", "no information"])
  
  
+# ── Phrases that indicate positional/dynamic roles — always need live search ──
+_DYNAMIC_ROLE_PHRASES = [
+    "chief minister", "cm of", "cm of", "prime minister", "pm of",
+    "president of", "governor of", "ceo of", "cto of", "cfo of",
+    "minister of", "secretary of", "head of", "chairman of",
+    "chancellor of", "mayor of", "director of", "ambassador of",
+    "who leads", "who runs", "who heads", "who governs",
+]
+ 
+ 
+def _is_self_contained_query(message: str) -> bool:
+    """
+    Returns True when the query has its own clear subject and does NOT
+    need previous conversation history for context.
+    A self-contained query gets empty history so prior topics don't leak.
+    """
+    msg = message.lower().strip()
+    # Pronoun → needs history (it's a follow-up)
+    if set(msg.split()) & _PRONOUNS:
+        return False
+    # Follow-up starters → needs history
+    if any(msg.startswith(s) for s in _FOLLOWUP_STARTERS):
+        return False
+    # 1+ content word → has its own subject (after stripping fillers).
+    # "What is the Solar System?" → ["solar", "system"] → self-contained ✓
+    # "Who is Elon Musk?"         → ["elon", "musk"]   → self-contained ✓
+    # "What is AI?"               → ["ai"]             → self-contained ✓
+    # "Explain AI"                → ["ai"]             → self-contained ✓
+    # "he" / "it"                 → caught by pronoun check above ✓
+    # "tell me more"              → caught by follow-up starters above ✓
+    # Empty / only fillers        → not self-contained ✓
+    cw = _content_words(msg)
+    return len(cw) >= 1
+ 
+ 
+def _needs_live_search(message: str) -> bool:
+    """
+    Returns True when the question asks for a dynamic/current fact that
+    must come from live search, not from the model's training data.
+    Extends is_static_knowledge() to catch phrasing variants missed by
+    the keyword list (e.g. "Chief Minister of AP" vs "CM of AP").
+    """
+    q = message.lower().strip()
+    # Already handled by is_static_knowledge() via _REALTIME_TRIGGERS
+    if not is_static_knowledge(message):
+        return True
+    # Catch "who is the Chief Minister of X", "who is CEO of Y", etc.
+    if "who is" in q or "who are" in q or "who was" in q:
+        if any(phrase in q for phrase in _DYNAMIC_ROLE_PHRASES):
+            return True
+    return False
+ 
+ 
 def _general_answer(user_message: str, history, lang: str, detailed: bool) -> str:
     """
     ONE AI call total. No duplicate searches.
  
     Route A: static knowledge → Groq directly (fast).
     Route B: current/fresh info → Tavily context → Groq once.
+ 
+    Bug 1 fix: self-contained queries get empty history so prior
+    conversation topics don't bleed into unrelated answers.
+    Bug 2 fix: dynamic role queries (CM, PM, CEO…) always use live search.
     """
-    use_tavily = not is_static_knowledge(user_message)
+    use_tavily = _needs_live_search(user_message)
     print(f"[SEARCH] needs_tavily={use_tavily} for: {user_message!r}", file=sys.stderr)
+ 
+    # Strip history for self-contained queries to prevent context leakage
+    safe_history = [] if _is_self_contained_query(user_message) else (history or [])
+    if safe_history != (history or []):
+        print("[SEARCH] Self-contained query — history cleared to prevent leakage",
+              file=sys.stderr)
  
     # ── Route A: Groq direct ──────────────────────────────────────────
     if not use_tavily:
         print("[SEARCH] Route A: Groq direct (static knowledge)", file=sys.stderr)
         return query_ai(
             prompt=user_message,
-            history=history,
+            history=safe_history,
             lang=lang,
             mode="general",
             detailed=detailed,
@@ -222,14 +284,14 @@ def _general_answer(user_message: str, history, lang: str, detailed: bool) -> st
                    else "Answer in one or two sentences only.")
             )
         return query_ai(
-            prompt=prompt, history=history, lang=lang,
+            prompt=prompt, history=safe_history, lang=lang,
             mode="general", detailed=detailed,
         )
  
     # ── Route B fallback: pure Groq ───────────────────────────────────
     print("[SEARCH] Tavily empty — fallback to pure Groq", file=sys.stderr)
     return query_ai(
-        prompt=user_message, history=history, lang=lang,
+        prompt=user_message, history=safe_history, lang=lang,
         mode="general", detailed=detailed,
     )
  
