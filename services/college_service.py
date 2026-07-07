@@ -82,67 +82,56 @@ def _fmt_courses(data) -> str:
         return str(data)
     ug = data.get("ug") or []
     pg = data.get("pg") or []
-    lines = ["🏫 Courses Offered"]
+    parts = []
     if ug:
-        lines.append("UG Programmes (3 Years)")
-        lines.extend(f"• {c}" for c in ug)
+        parts.append("UG (3yr): " + ", ".join(ug))
     if pg:
-        lines.append("PG Programmes (2 Years)")
-        lines.extend(f"• {c}" for c in pg)
-    return "\n".join(lines) if len(lines) > 1 else "Please contact the college for course details."
+        parts.append("PG (2yr): " + ", ".join(pg))
+    return "\n".join(parts) if parts else "Please contact the college for course details."
  
  
 def _fmt_hostel(data) -> str:
     if isinstance(data, dict):
         fee   = data.get("fee") or data.get("annual_fee") or "₹60,000/year"
         avail = data.get("availability") or "Available for boys and girls separately"
-        lines = ["🏫 Hostel", f"• Annual Fee: {fee}", f"• Availability: {avail}"]
-        meals = data.get("meals") or data.get("mess")
-        if meals:
-            lines.append(f"• Meals: {meals}")
-        return "\n".join(lines)
-    return "\n".join(["🏫 Hostel", "• Hostel facility is available. Contact college for details."])
+        return f"Hostel is available at Ideal College. Fee: {fee}. {avail}."
+    return "Hostel facility is available. Contact college for details."
  
  
 def _fmt_transport(data) -> str:
     if isinstance(data, dict):
         routes = data.get("routes") or data.get("areas") or []
         if routes and isinstance(routes, list):
-            lines = ["🏫 Transport", "Bus Routes"] + [f"• {r}" for r in routes[:6]]
-            return "\n".join(lines)
+            return f"Bus facility available covering: {', '.join(str(r) for r in routes[:5])}."
         desc = data.get("description") or data.get("details") or ""
         if desc:
-            return "\n".join(["🏫 Transport", str(desc)])
-    return "\n".join(["🏫 Transport", "Bus facility is available. Contact college for route details."])
+            return str(desc)
+    return "Bus/transport facility is available. Contact college for route details."
  
  
 def _fmt_library(data) -> str:
     if isinstance(data, dict):
         books = data.get("books") or data.get("total_books") or ""
         desc  = data.get("description") or ""
-        lines = ["🏫 Library"]
         if books:
-            lines.append(f"• Total Books: {books}")
+            return f"The library has {books} books. {desc}".strip()
         if desc:
-            lines.append(f"• {desc}")
-        if len(lines) > 1:
-            return "\n".join(lines)
-    return "\n".join(["🏫 Library", "• Reference and lending sections available."])
+            return str(desc)
+    return "Library is available with reference and lending sections."
  
  
 def _fmt_admissions(data) -> str:
     if isinstance(data, dict):
         elig = data.get("eligibility") or data.get("criteria") or ""
         docs  = data.get("documents") or []
-        lines = ["🏫 Admissions"]
+        out   = []
         if elig:
-            lines.append(f"Eligibility: {elig}")
+            out.append(f"Eligibility: {elig}")
         if docs and isinstance(docs, list):
-            lines.append("Required Documents")
-            lines.extend(f"• {d}" for d in docs[:6])
-        if len(lines) > 1:
-            return "\n".join(lines)
-    return "\n".join(["🏫 Admissions", "Contact the college admissions office for eligibility and process details."])
+            out.append(f"Documents: {', '.join(str(d) for d in docs[:5])}")
+        if out:
+            return "\n".join(out)
+    return "Contact the college admissions office for eligibility and process details."
  
  
 def _fmt_facilities(data) -> str:
@@ -154,30 +143,26 @@ def _fmt_facilities(data) -> str:
             if v and str(v).lower() not in ("false", "no", "none", ""):
                 items.append(k.replace("_", " ").title())
         if items:
-            lines = ["🏫 Campus Facilities"] + [f"• {i}" for i in items]
-            return "\n".join(lines)
-    return "\n".join(["🏫 Campus Facilities", "• Labs  • Library  • Wi-Fi  • Cafeteria  • Playground  • Auditorium"])
+            return "Available facilities: " + ", ".join(items) + "."
+    return "Campus facilities include labs, library, Wi-Fi, cafeteria, playground and more."
  
  
 def _fmt_placements(data) -> str:
     if not isinstance(data, dict):
-        return "\n".join(["🎓 Placements", "Placement drives are conducted every year."])
+        return "Placement drives are conducted every year."
     st = data.get("statistics", {}) or {}
-    lines = ["🎓 Placements"]
+    lines = ["🎓 Ideal College Placements:"]
     if "2026" in st:
-        sd   = st["2026"].get("seniors_drive", {}) or {}
-        sel  = sd.get("students_selected", "-")
-        part = sd.get("students_participated", sd.get("eligible_students", "-"))
+        sd = st["2026"].get("seniors_drive", {}) or {}
+        sel = sd.get("students_selected", "-")
+        part = sd.get("students_participated", "-")
         comp = sd.get("visited_companies", "-")
-        lines += ["Year 2026", f"• Students Selected: {sel}",
-                  f"• Eligible Students: {part}", f"• Companies: {comp}"]
+        lines.append(f"2026: {sel} students selected from {part}, across {comp} companies.")
     if "2025" in st:
-        sel25 = st["2025"].get("selected_students", st["2025"].get("students_selected", "-"))
-        lines += ["Year 2025", f"• Students Selected: {sel25}"]
+        lines.append(f"2025: {st['2025'].get('selected_students', '-')} students selected.")
     phys = data.get("companies_visited_physical") or []
     if phys:
-        lines.append("Top Recruiters")
-        lines.extend(f"• {c}" for c in phys[:6])
+        lines.append("Recruiters: " + ", ".join(phys[:6]) + ".")
     return "\n".join(lines)
  
  
@@ -200,9 +185,9 @@ def _fmt_fee(data, q: str) -> str:
         if keyword in q:
             fee = data.get(key, default) if key else default
             label = keyword.upper() if len(keyword) <= 4 else keyword.title()
-            return "\n".join(["🏫 Fee Structure", f"Course: {label}", f"Annual Fee: {fee}"])
+            return f"The annual {label} fee at Ideal College is {fee}."
     rng = data.get("range", "₹45,000–₹60,000 per year")
-    return "\n".join(["🏫 Fee Structure", f"Fee Range: {rng}"])
+    return f"Fee range at Ideal College: {rng}."
  
  
 def _fmt_exams(data) -> str:
@@ -220,9 +205,8 @@ def _fmt_sports(data) -> str:
     if isinstance(data, dict):
         items = data.get("sports") or data.get("activities") or []
         if items and isinstance(items, list):
-            lines = ["🏫 Sports & Activities"] + [f"• {i}" for i in items[:8]]
-            return "\n".join(lines)
-    return "\n".join(["🏫 Sports & Activities", "• NSS  • NCC  • Cricket  • Volleyball  • Cultural Events"])
+            return "Sports/activities: " + ", ".join(str(i) for i in items[:8]) + "."
+    return "Sports and cultural activities including NSS, NCC, cricket, volleyball and more."
  
  
 def _fmt_history(data) -> str:
@@ -278,13 +262,13 @@ def _fmt_faculty(data, q: str) -> str:
             dept_name = d.get("name", k.replace("_", " ").title())
             if _is_hod_query:
                 if d.get("hod"):
-                    return "\n".join(["🏫 HOD", f"Department: {dept_name}", f"HOD: {d['hod']}"])
+                    return f"🏫 {dept_name} HOD\n• {d['hod']}"
                 if d.get("hods"):
-                    lines = []
-                    for hk, hv in d["hods"].items():
-                        lines.append(f"HOD ({hk.upper()}): {hv}")
+                    lines = [f"🏫 {dept_name} HOD"]
+                    for hv in d["hods"].values():
+                        lines.append(f"• {hv}")
                     return "\n".join(lines)
-                return f"Please contact the college for {dept_name} HOD details."
+                return f"🏫 {dept_name} HOD\n• Please contact the college for details."
             else:
                 lines = [f"🏫 {dept_name}"]
                 if d.get("hod"):
@@ -292,35 +276,29 @@ def _fmt_faculty(data, q: str) -> str:
                 if d.get("hods"):
                     for hk, hv in d["hods"].items():
                         lines.append(f"HOD ({hk.upper()}): {hv}")
-                faculty = d.get("faculty") or d.get("faculty_members") or []
-                if faculty and isinstance(faculty, list):
-                    lines.append("Faculty Members:")
-                    for fm in faculty[:6]:
-                        lines.append(f"• {fm}")
                 return "\n".join(lines)
  
     # Generic HOD query without dept → list all HODs
     if _is_hod_query:
-        hod_lines = ["🏫 Department HODs"]
+        lines = []
         for k, d in depts.items():
             if not isinstance(d, dict):
                 continue
             dept_name = d.get("name", k.replace("_", " ").title())
             if d.get("hod"):
-                hod_lines.append(f"• {dept_name}: {d['hod']}")
+                lines.append(f"{dept_name}: {d['hod']}")
             elif d.get("hods"):
                 for hk, hv in d["hods"].items():
-                    hod_lines.append(f"• {dept_name} ({hk.upper()}): {hv}")
-        if len(hod_lines) > 1:
-            return "\n".join(hod_lines)
+                    lines.append(f"{dept_name} ({hk.upper()}): {hv}")
+        if lines:
+            return "🏫 Department HODs\n" + "\n".join(f"• {l}" for l in lines)
  
     # Generic: list department names only
-    names = [d.get("name", k) for k, d in depts.items() if isinstance(d, dict)]
+    names = [d.get("name", k) for k, d in depts.items()]
     total = data.get("total_faculty")
-    dept_lines = ["🏫 Departments"] + [f"• {n}" for n in names]
-    if total:
-        dept_lines.append(f"Total Faculty: {total}")
-    return "\n".join(dept_lines)
+    body  = "\n".join(f"  • {n}" for n in names)
+    tail  = f"\nTotal Faculty: {total}" if total else ""
+    return f"Departments:\n{body}{tail}"
  
  
 # Section dispatch table
@@ -620,16 +598,16 @@ def _quick(q: str, lang: str):
     # Named-person shortcuts — fastest path
     if "ranjith" in q_toks:
         name = gen.get("academic_director", "Ranjith Sir")
-        return "\n".join(["🏫 Academic Director", f"Name: {name}", "Role: Academic Director"])
+        return f"🏫 Academic Director\n• {name}"
     if "vasu" in q_toks and "satyanarayana" not in q_toks:
         name = gen.get("administrative_director", "Vasu Sir")
-        return "\n".join(["🏫 Administrative Director", f"Name: {name}", "Role: Administrative Director"])
+        return f"🏫 Administrative Director\n• {name}"
     if any(k in q_toks for k in ("kama", "kamaraju")):
         vp = gen.get("vice_principal", "Mr. V. Kama Raju")
-        return "\n".join(["🏫 Vice Principal", f"Name: {vp}", "Role: Vice Principal"])
+        return f"🏫 Vice Principal\n• {vp}"
     if "satyanarayana" in q_toks:
         name = gen.get("principal", "Dr. T. Satyanarayana")
-        return "\n".join(["🏫 Principal", f"Name: {name}", "Role: Principal"])
+        return f"🏫 Principal\n• {name}"
  
     # ── Vice Principal — check BEFORE principal ─────────────────────────
     # Matches: vice principal, vice-principal, vp, assistant principal,
@@ -644,7 +622,7 @@ def _quick(q: str, lang: str):
     )
     if _vp_match:
         vp = gen.get("vice_principal") or "Mr. V. Kama Raju"
-        return "\n".join(["🏫 Vice Principal", f"Name: {vp}", "Role: Vice Principal"])
+        return f"🏫 Vice Principal\n• {vp}"
  
     # ── Academic Director — check BEFORE bare "director" ────────────────
     # Matches: academic director, acadimic director, acadamic director,
@@ -659,7 +637,7 @@ def _quick(q: str, lang: str):
     )
     if _acad_match:
         name = gen.get("academic_director") or "Ranjith Sir"
-        return "\n".join(["🏫 Academic Director", f"Name: {name}", "Role: Academic Director"])
+        return f"🏫 Academic Director\n• {name}"
  
     # ── Administrative Director — check BEFORE bare "director" ──────────
     # Matches: administrative director, administration director,
@@ -675,17 +653,17 @@ def _quick(q: str, lang: str):
     )
     if _admin_match:
         name = gen.get("administrative_director") or "Vasu Sir"
-        return "\n".join(["🏫 Administrative Director", f"Name: {name}", "Role: Administrative Director"])
+        return f"🏫 Administrative Director\n• {name}"
  
     # ── Principal ────────────────────────────────────────────────────────
     if any(t.startswith("princ") for t in q_toks):
         name = gen.get("principal") or "Dr. T. Satyanarayana"
-        return "\n".join(["🏫 Principal", f"Name: {name}", "Role: Principal"])
+        return f"🏫 Principal\n• {name}"
     # Bare "director" without qualifier → show both
     if "director" in q and "academic" not in q and "administrative" not in q:
         acad  = gen.get("academic_director") or "Ranjith Sir"
         admin = gen.get("administrative_director") or "Vasu Sir"
-        return "\n".join(["🏫 Directors", f"• Academic Director: {acad}", f"• Administrative Director: {admin}"])
+        return f"🏫 Directors\n• Academic Director: {acad}\n• Administrative Director: {admin}"
  
     if any(k in q for k in ["contact", "phone", "ఫోన్", "number", "call"]):
         return f"📞 {gen.get('contact', '')}\n📧 {gen.get('email', '')}"
@@ -806,18 +784,14 @@ def get_college_answer(message: str, lang: str = "en", explain: bool = True):
         gen = _section_data("general_information", lang) or {}
         parts = [
             f"🏫 {m.get('college_name_en', 'Ideal College of Arts and Sciences')}",
-            f"📍 Location: {m.get('location', 'Vidyuth Nagar, Kakinada, AP')}",
+            f"📍 {m.get('location', 'Vidyuth Nagar, Kakinada, AP')}",
             f"🎓 Affiliation: {m.get('affiliation', 'Adikavi Nannaya University')}",
-            f"🏅 Accreditation: {m.get('accreditation', 'NAAC A Grade')}",
+            f"🏅 {m.get('accreditation', 'NAAC A Grade')}",
         ]
         if gen.get("principal"):
-            parts.append(f"• Principal: {gen['principal']}")
-        if gen.get("vice_principal"):
-            parts.append(f"• Vice Principal: {gen['vice_principal']}")
+            parts.append(f"👨‍🏫 Principal: {gen['principal']}")
         if gen.get("contact"):
             parts.append(f"📞 {gen['contact']}")
-        if gen.get("email"):
-            parts.append(f"📧 {gen['email']}")
         return "\n".join(parts)
  
     # 4. Section keyword scan
@@ -870,4 +844,3 @@ def get_college_context() -> str:
  
  
 __all__ = ["COLLEGE_KEYWORDS", "get_college_answer", "get_college_context"]
- 

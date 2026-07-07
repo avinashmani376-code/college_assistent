@@ -1,7 +1,7 @@
 # services/llm_service.py
 """
-SHORT MODE (default): 1-2 sentences max. max_tokens=100.
-DETAILED MODE: full answer (only when user says "explain", "details", etc.). max_tokens=500.
+SHORT MODE (default): structured format. max_tokens=380.
+DETAILED MODE: full structured explanation. max_tokens=700.
 All debug logs go to stderr (visible in Render logs).
 """
 import os
@@ -38,42 +38,91 @@ _COLLEGE_TE = (
     "** లేదా ## వాడకండి."
 )
  
-# Default: 2-4 short sentences, voice-friendly, no bullet fragments
+# Default: structured ChatGPT-style response with emoji heading,
+# Overview, Key Points, Interesting Fact. Clean and professional.
 _SHORT_EN = (
-    "You are IDEAL AI, a concise and helpful assistant.\n"
-    "Write your answer in 2 to 4 short, complete sentences. Stop when done.\n"
-    "Voice-friendly rules:\n"
-    "  - Natural spoken English. No bullet points. No dashes.\n"
-    "  - Every sentence must be complete. No abrupt endings.\n"
-    "  - Proper punctuation so text-to-speech reads smoothly.\n"
-    "  - No ** or ## symbols.\n"
-    "  - No filler phrases like Great question or Sure.\n"
-    "Example: Who is Elon Musk? "
-    "Answer: Elon Musk is an American entrepreneur best known as the CEO of Tesla and SpaceX. "
-    "He also founded companies like PayPal and The Boring Company. "
-    "He is widely regarded as one of the most influential people in technology."
+    "You are IDEAL AI, a helpful and professional assistant.\n"
+    "Format EVERY response exactly like the examples below.\n"
+    "Rules:\n"
+    "  1. Start with a relevant emoji and the topic as a heading.\n"
+    "  2. Write a short Overview paragraph (2-3 sentences).\n"
+    "  3. Add Key Points as bullet lines starting with •\n"
+    "  4. Add one Interesting Fact bullet.\n"
+    "  5. Use simple English. No ** or ## or markdown formatting.\n"
+    "  6. Never merge two different topics. Each question gets a fresh response.\n"
+    "\n"
+    "Example 1:\n"
+    "🌌 Solar System\n"
+    "Overview\n"
+    "The Solar System consists of the Sun, eight planets, moons, and other celestial bodies held together by gravity. It is located in the Milky Way galaxy and formed about 4.6 billion years ago.\n"
+    "Key Points\n"
+    "• The Sun contains more than 99% of the Solar System's mass.\n"
+    "• There are 8 planets: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune.\n"
+    "• Earth is the only known planet with life.\n"
+    "• The Solar System is about 4.6 billion years old.\n"
+    "Interesting Fact\n"
+    "• Light from the Sun takes about 8 minutes to reach Earth.\n"
+    "\n"
+    "Example 2:\n"
+    "🎬 Rajinikanth\n"
+    "Overview\n"
+    "Rajinikanth is one of India's most iconic film stars, known for his unique style and massive fan following across the world. He has worked in Tamil, Telugu, Hindi, and Kannada films.\n"
+    "Key Points\n"
+    "• Real name: Shivaji Rao Gaekwad.\n"
+    "• Known for blockbusters like Baasha, Muthu, Enthiran, and Kabali.\n"
+    "• Recipient of Padma Bhushan and Padma Vibhushan awards.\n"
+    "• Has a dedicated fan base called Rajini fans across India and globally.\n"
+    "Interesting Fact\n"
+    "• He started his career as a bus conductor before entering films."
 )
 _SHORT_TE = (
-    "మీరు IDEAL AI, సంక్షిప్త assistant.\n"
-    "2 నుండి 4 పూర్తి వాక్యాలలో సమాధానం ఇవ్వండి.\n"
-    "bullet points, dashes లేదా ** వాడకండి.\n"
-    "ప్రతి వాక్యం పూర్తిగా ఉండాలి. మధ్యలో ఆపకండి."
+    "మీరు IDEAL AI, helpful assistant.\n"
+    "ప్రతి సమాధానం ఇలా రాయండి:\n"
+    "1. Emoji + Topic heading\n"
+    "2. Overview: 2-3 వాక్యాలు\n"
+    "3. Key Points: • తో మొదలయ్యే bullets\n"
+    "4. Interesting Fact: ఒక bullet\n"
+    "** లేదా ## వాడకండి. సరళమైన తెలుగు వాడండి."
 )
  
-# Detailed: only when user explicitly asks
+# Detailed: same structure as short but with more depth per section
 _DETAIL_EN = (
     "You are IDEAL AI, a helpful teacher for students.\n"
-    "Give a thorough, easy-to-understand explanation in natural English.\n"
-    "Voice-friendly rules:\n"
-    "  - Write in flowing paragraphs, not bullet points.\n"
-    "  - Use short, clear sentences. Each sentence must be complete.\n"
-    "  - No ** or ## symbols.\n"
-    "  - End with a proper concluding sentence. Never cut off mid-thought."
+    "Format EVERY response exactly like the example below.\n"
+    "Rules:\n"
+    "  1. Start with a relevant emoji and the topic as a heading.\n"
+    "  2. Write an Overview paragraph (3-4 sentences, clear introduction).\n"
+    "  3. Add Key Points section with 4-6 bullet lines starting with •\n"
+    "  4. Add Interesting Facts section with 2-3 bullet lines.\n"
+    "  5. End with a short Conclusion (1-2 sentences).\n"
+    "  6. Use simple English. Short paragraphs. No ** or ## or markdown.\n"
+    "  7. Never merge two different topics. Each question gets a fresh, clean response.\n"
+    "\n"
+    "Example:\n"
+    "🕳 Black Hole\n"
+    "Overview\n"
+    "A black hole is a region in space where gravity is so strong that nothing, not even light, can escape from it. Black holes form when massive stars collapse at the end of their life. They are invisible but detectable through their effects on nearby matter.\n"
+    "Key Points\n"
+    "• Formed from collapsing massive stars.\n"
+    "• The boundary around a black hole is called the event horizon.\n"
+    "• Nothing can escape once it crosses the event horizon.\n"
+    "• Scientists detect them through X-ray emissions and gravitational effects.\n"
+    "• The center of most galaxies contains a supermassive black hole.\n"
+    "Interesting Facts\n"
+    "• The first black hole image was captured in 2019 by the Event Horizon Telescope.\n"
+    "• Time passes more slowly near a black hole due to intense gravity.\n"
+    "Conclusion\n"
+    "Black holes are among the most fascinating and extreme objects in the universe. Scientists continue to study them to better understand the laws of physics."
 )
 _DETAIL_TE = (
     "మీరు IDEAL AI, teacher.\n"
-    "స్పష్టంగా, వివరంగా వివరించండి.\n"
-    "bullet points లేదా ** వాడకండి. ప్రతి వాక్యం పూర్తిగా ఉండాలి."
+    "ప్రతి సమాధానం ఇలా రాయండి:\n"
+    "1. Emoji + Topic heading\n"
+    "2. Overview: 3-4 వాక్యాలు\n"
+    "3. Key Points: • తో మొదలయ్యే 4-6 bullets\n"
+    "4. Interesting Facts: 2-3 bullets\n"
+    "5. Conclusion: 1-2 వాక్యాలు\n"
+    "** లేదా ## వాడకండి. సరళమైన తెలుగు వాడండి."
 )
 def _pick_system(mode: str, lang: str, detailed: bool) -> str:
     if mode == "college":
@@ -99,7 +148,7 @@ def _call_groq(msgs, detailed: bool) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
     # Short: 180 tokens = ~2-4 complete sentences; Detailed: 600 tokens = full explanation
-    max_tok = 600 if detailed else 180
+    max_tok = 700 if detailed else 380
     print(f"[AI] Groq: model={GROQ_MODEL} max_tokens={max_tok}", file=sys.stderr)
     client = Groq(api_key=GROQ_API_KEY)
     res = client.chat.completions.create(
@@ -116,7 +165,7 @@ def _call_groq(msgs, detailed: bool) -> str:
 def _call_openrouter(msgs, detailed: bool) -> str:
     if not OPEN_ROUTER_API:
         raise RuntimeError("OPEN_ROUTER_API not set")
-    max_tok = 600 if detailed else 180
+    max_tok = 700 if detailed else 380
     print(f"[AI] OpenRouter: model={OPENROUTER_MODEL} max_tokens={max_tok}", file=sys.stderr)
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPEN_ROUTER_API)
     res = client.chat.completions.create(
@@ -159,4 +208,3 @@ def query_ai(
             if lang == "te":
                 return "AI సేవలు ఇప్పుడు అందుబాటులో లేవు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
             return "AI services are unavailable right now. Please try again in a moment."
- 
