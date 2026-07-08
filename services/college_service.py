@@ -261,14 +261,15 @@ def _fmt_faculty(data, q: str) -> str:
             d = depts[k]
             dept_name = d.get("name", k.replace("_", " ").title())
             if _is_hod_query:
+                # Return only HOD info for HOD-specific queries
                 if d.get("hod"):
-                    return f"🏫 {dept_name} HOD\n• {d['hod']}"
+                    return f"The HOD of {dept_name} is {d['hod']}."
                 if d.get("hods"):
-                    lines = [f"🏫 {dept_name} HOD"]
-                    for hv in d["hods"].values():
-                        lines.append(f"• {hv}")
+                    lines = []
+                    for hk, hv in d["hods"].items():
+                        lines.append(f"HOD ({hk.upper()}): {hv}")
                     return "\n".join(lines)
-                return f"🏫 {dept_name} HOD\n• Please contact the college for details."
+                return f"Please contact the college for {dept_name} HOD details."
             else:
                 lines = [f"🏫 {dept_name}"]
                 if d.get("hod"):
@@ -291,7 +292,7 @@ def _fmt_faculty(data, q: str) -> str:
                 for hk, hv in d["hods"].items():
                     lines.append(f"{dept_name} ({hk.upper()}): {hv}")
         if lines:
-            return "🏫 Department HODs\n" + "\n".join(f"• {l}" for l in lines)
+            return "Department HODs:\n" + "\n".join(f"  • {l}" for l in lines)
  
     # Generic: list department names only
     names = [d.get("name", k) for k, d in depts.items()]
@@ -598,16 +599,20 @@ def _quick(q: str, lang: str):
     # Named-person shortcuts — fastest path
     if "ranjith" in q_toks:
         name = gen.get("academic_director", "Ranjith Sir")
-        return f"🏫 Academic Director\n• {name}"
+        return (f"Academic Director: {name}." if lang == "te"
+                else f"The Academic Director of Ideal College is {name}.")
     if "vasu" in q_toks and "satyanarayana" not in q_toks:
         name = gen.get("administrative_director", "Vasu Sir")
-        return f"🏫 Administrative Director\n• {name}"
+        return (f"Administrative Director: {name}." if lang == "te"
+                else f"The Administrative Director of Ideal College is {name}.")
     if any(k in q_toks for k in ("kama", "kamaraju")):
         vp = gen.get("vice_principal", "Mr. V. Kama Raju")
-        return f"🏫 Vice Principal\n• {vp}"
+        return (f"మన కాలేజీ వైస్ ప్రిన్సిపల్ {vp} గారు." if lang == "te"
+                else f"The Vice Principal of Ideal College is {vp}.")
     if "satyanarayana" in q_toks:
         name = gen.get("principal", "Dr. T. Satyanarayana")
-        return f"🏫 Principal\n• {name}"
+        return (f"మన కాలేజీ ప్రిన్సిపల్ {name} గారు." if lang == "te"
+                else f"The Principal of Ideal College is {name}.")
  
     # ── Vice Principal — check BEFORE principal ─────────────────────────
     # Matches: vice principal, vice-principal, vp, assistant principal,
@@ -624,9 +629,23 @@ def _quick(q: str, lang: str):
         vp = gen.get("vice_principal") or "Mr. V. Kama Raju"
         return f"🏫 Vice Principal\n• {vp}"
  
-    # ── Academic Director — check BEFORE bare "director" ────────────────
-    # Matches: academic director, acadimic director, acadamic director,
-    #          director academics, head of academics, director academic
+    # ── Administrative Director — LONGEST MATCH — checked before academic ──
+    # "Administrative" is longer than "Academic"; check it first so that
+    # context-leaked queries like "academic director Administrative Director"
+    # still correctly return the Administrative Director.
+    _admin_match = (
+        (_has(q_toks, "admin") and _has(q_toks, "direct"))
+        or (_has(q_toks, "admin") and _has(q_toks, "head"))
+        or any(s in q for s in ("administrative director",
+                                "administration director", "admin director",
+                                "administation director", "adminstration director",
+                                "administrative head", "admin head"))
+    )
+    if _admin_match:
+        name = gen.get("administrative_director") or "Vasu Sir"
+        return f"🏫 Administrative Director\n• {name}"
+
+    # ── Academic Director — checked after Administrative Director ─────────
     _acad_match = (
         (_has(q_toks, "acad") and _has(q_toks, "direct"))
         or (_has(q_toks, "acad") and _has(q_toks, "head"))
@@ -639,31 +658,15 @@ def _quick(q: str, lang: str):
         name = gen.get("academic_director") or "Ranjith Sir"
         return f"🏫 Academic Director\n• {name}"
  
-    # ── Administrative Director — check BEFORE bare "director" ──────────
-    # Matches: administrative director, administration director,
-    #          admin director, administation director, adminstration director,
-    #          administrative head
-    _admin_match = (
-        (_has(q_toks, "admin") and _has(q_toks, "direct"))
-        or (_has(q_toks, "admin") and _has(q_toks, "head"))
-        or any(s in q for s in ("administrative director",
-                                "administration director", "admin director",
-                                "administation director", "adminstration director",
-                                "administrative head", "admin head"))
-    )
-    if _admin_match:
-        name = gen.get("administrative_director") or "Vasu Sir"
-        return f"🏫 Administrative Director\n• {name}"
- 
     # ── Principal ────────────────────────────────────────────────────────
     if any(t.startswith("princ") for t in q_toks):
         name = gen.get("principal") or "Dr. T. Satyanarayana"
         return f"🏫 Principal\n• {name}"
     # Bare "director" without qualifier → show both
     if "director" in q and "academic" not in q and "administrative" not in q:
-        acad  = gen.get("academic_director") or "Ranjith Sir"
-        admin = gen.get("administrative_director") or "Vasu Sir"
-        return f"🏫 Directors\n• Academic Director: {acad}\n• Administrative Director: {admin}"
+        acad  = gen.get("academic_director", "Ranjith Sir")
+        admin = gen.get("administrative_director", "Vasu Sir")
+        return f"Academic Director: {acad}\nAdministrative Director: {admin}"
  
     if any(k in q for k in ["contact", "phone", "ఫోన్", "number", "call"]):
         return f"📞 {gen.get('contact', '')}\n📧 {gen.get('email', '')}"

@@ -113,44 +113,64 @@ def _extract_topic_from_history(history: list) -> str:
 def _resolve_message(user_message: str, ctx: dict) -> str:
     """
     Expand a bare / pronoun follow-up message using context.
- 
-    Examples:
-      history topic: Rajinikanth
-      "What is his latest movie?"  →  "What is Rajinikanth latest movie?"
-      "latest movie"               →  "Rajinikanth latest movie"
-      "Budget?"                    →  "Rajinikanth Budget"
-      "Who directed it?"           →  "Who directed Rajinikanth"
- 
-    Weather context:
-      "Tomorrow?" (after weather Hyderabad)  →  "weather tomorrow Hyderabad"
+
+    RULE: Only modify the message when it is NOT self-contained.
+    Uses _is_self_contained() as the single source of truth — the same
+    function used by _general_answer() — so both paths behave identically.
+
+    Self-contained  → return unchanged (current topic ignored completely)
+    Not self-contained → expand with prior topic (pronoun/continuation)
+
+    Examples (topic in context = Rajinikanth):
+      "What is his latest movie?" → "What is Rajinikanth latest movie?"
+      "latest movie"              → "Rajinikanth latest movie"
+      "Budget?"                   → "Rajinikanth Budget"
+      "News about AI"             → "News about AI"  (unchanged — self-contained)
+      "Dark Matter"               → "Dark Matter"    (unchanged — self-contained)
     """
     raw     = user_message.strip()
     msg_low = raw.lower()
- 
-    # ── Detect bare follow-up ───────────────────────────────────────────
-    cw = _content_words(msg_low)
-    is_pronoun  = bool(set(msg_low.split()) & _PRONOUNS)
-    is_bare     = (
-        any(msg_low.startswith(s) for s in _FOLLOWUP_STARTERS)
-        or (is_pronoun and len(cw) <= 4)
-        or (len(cw) <= 2 and not any(c.isupper() for c in raw))
-    )
- 
-    if not is_bare:
-        return user_message   # self-contained — no expansion needed
- 
-    # ── Weather follow-up ───────────────────────────────────────────────
+
+    # ── Weather follow-up: checked FIRST, before self-contained gate ─────
+    # Single-word weather queries ("Tomorrow?", "Rain?", "Weekend?") are
+    # technically self-contained (1 content word) but need city injection.
+    # Detect them by ctx.intent=="weather" + no explicit city in the message.
     if ctx.get("intent") == "weather" and ctx.get("city"):
         city = ctx["city"]
-        return f"weather {raw} {city}"
- 
+        msg_low_clean = msg_low.rstrip("?.!")
+        # Only inject if the message doesn't already specify a city
+        city_already = city.lower() in msg_low
+        # If user already has "weather in X" or explicitly names a different city,
+        # it is a self-contained weather query — don't inject.
+        has_explicit_location = (
+            "weather in" in msg_low or "weather at" in msg_low
+            or "weather for" in msg_low
+            or any(k in msg_low for k in
+                   ("mumbai","delhi","hyderabad","bangalore","chennai","kolkata",
+                    "vizag","vijayawada","guntur","tirupati","nellore","kurnool",
+                    "rajahmundry","eluru","ongole","anantapur","kadapa"))
+        )
+        has_weather_word = any(k in msg_low for k in
+                               ("temperature", "forecast", "rain",
+                                "sunny", "cloudy", "wind", "humidity", "weekend",
+                                "tomorrow", "tonight", "morning", "evening",
+                                "monday","tuesday","wednesday","thursday","friday",
+                                "saturday","sunday","next week","today"))
+        if has_weather_word and not city_already and not has_explicit_location:
+            return f"weather {raw} {city}"
+
+    # ── Single gate: if self-contained, never inject context ─────────────
+    # Uses the same logic as _general_answer so both paths are consistent.
+    if _is_self_contained(user_message):
+        return user_message
+
     # ── Topic-based follow-up ───────────────────────────────────────────
     topic = ctx.get("topic") or _extract_topic_from_history(ctx.get("history", []))
     if not topic:
-        return user_message   # no context to inject
- 
+        return user_message   # no prior context — nothing to inject
+
     resolved = raw
- 
+
     # Replace pronouns with topic
     for pronoun in ("his", "her", "its", "their", "he", "she", "it",
                     "they", "them", "him", "this", "that"):
@@ -158,11 +178,11 @@ def _resolve_message(user_message: str, ctx: dict) -> str:
         if pat.search(resolved):
             resolved = pat.sub(topic, resolved, count=1)
             break
- 
+
     # If no pronoun replaced — prepend topic
     if resolved == raw:
         resolved = f"{topic} {raw}"
- 
+
     print(f"[CONTEXT] resolved: {raw!r} → {resolved!r}", file=sys.stderr)
     return resolved
  
@@ -181,79 +201,100 @@ def _empty(text: str) -> bool:
     return any(p in text.lower() for p in ["couldn't find", "rephrase", "no information"])
  
  
-# ── Phrases that indicate positional/dynamic roles — always need live search ──
-_DYNAMIC_ROLE_PHRASES = [
-    "chief minister", "cm of", "cm of", "prime minister", "pm of",
-    "president of", "governor of", "ceo of", "cto of", "cfo of",
-    "minister of", "secretary of", "head of", "chairman of",
-    "chancellor of", "mayor of", "director of", "ambassador of",
-    "who leads", "who runs", "who heads", "who governs",
-]
- 
- 
-def _is_self_contained_query(message: str) -> bool:
+# ── Bare continuation phrases that need a prior topic ────────────────────
+# These have NO subject of their own — they only work as follow-ups.
+_BARE_CONTINUATIONS = {
+    "explain about", "tell me more", "continue", "go on", "more",
+    "explain more", "tell more", "more details", "more info",
+    "and then", "what about it", "what next", "next", "elaborate",
+    "details", "more information", "give more", "say more",
+}
+
+
+def _is_bare_continuation(message: str) -> bool:
     """
-    Returns True when the query has its own clear subject and does NOT
-    need previous conversation history for context.
-    A self-contained query gets empty history so prior topics don't leak.
+    True when the message is a continuation phrase with no subject.
+    Examples: "Explain about", "Tell me more", "Continue"
+    These REQUIRE a prior topic to make sense.
+    """
+    msg = message.strip().lower().rstrip("?.!")
+    return msg in _BARE_CONTINUATIONS or any(
+        msg == s or msg == s + "." or msg == s + "?"
+        for s in _BARE_CONTINUATIONS
+    )
+
+
+def _is_self_contained(message: str) -> bool:
+    """
+    True when the message carries its own clear subject.
+    Self-contained queries get empty history so prior topics don't leak.
+
+    A message is self-contained when:
+    - No pronouns (he/she/it/they/his/their/those/these)
+    - Not a bare follow-up starter (tell me more, continue, latest movie…)
+    - At least 1 meaningful content word after stripping fillers
     """
     msg = message.lower().strip()
-    # Pronoun → needs history (it's a follow-up)
+
+    # Pronouns signal reference to prior topic
     if set(msg.split()) & _PRONOUNS:
         return False
-    # Follow-up starters → needs history
-    if any(msg.startswith(s) for s in _FOLLOWUP_STARTERS):
+
+    # Bare follow-up starters signal continuation — check word-boundary aware
+    # to avoid "news about AI".startswith("new") false-positive
+    msg_words = msg.split()
+    for starter in _FOLLOWUP_STARTERS:
+        starter_words = starter.split()
+        # Match only if the leading WORDS are identical (not just substring)
+        if msg_words[:len(starter_words)] == starter_words:
+            # Only treat as follow-up if no extra meaningful subject follows
+            remaining = msg_words[len(starter_words):]
+            remaining_content = [w for w in remaining
+                                 if w not in {"the", "a", "an", "of", "in", "on", "about"}]
+            if not remaining_content:
+                return False   # pure follow-up, no subject
+
+    # Bare continuations have no subject at all
+    if _is_bare_continuation(msg):
         return False
-    # 1+ content word → has its own subject (after stripping fillers).
-    # "What is the Solar System?" → ["solar", "system"] → self-contained ✓
-    # "Who is Elon Musk?"         → ["elon", "musk"]   → self-contained ✓
-    # "What is AI?"               → ["ai"]             → self-contained ✓
-    # "Explain AI"                → ["ai"]             → self-contained ✓
-    # "he" / "it"                 → caught by pronoun check above ✓
-    # "tell me more"              → caught by follow-up starters above ✓
-    # Empty / only fillers        → not self-contained ✓
+
+    # At least 1 content word = has its own subject
     cw = _content_words(msg)
     return len(cw) >= 1
- 
- 
-def _needs_live_search(message: str) -> bool:
-    """
-    Returns True when the question asks for a dynamic/current fact that
-    must come from live search, not from the model's training data.
-    Extends is_static_knowledge() to catch phrasing variants missed by
-    the keyword list (e.g. "Chief Minister of AP" vs "CM of AP").
-    """
-    q = message.lower().strip()
-    # Already handled by is_static_knowledge() via _REALTIME_TRIGGERS
-    if not is_static_knowledge(message):
-        return True
-    # Catch "who is the Chief Minister of X", "who is CEO of Y", etc.
-    if "who is" in q or "who are" in q or "who was" in q:
-        if any(phrase in q for phrase in _DYNAMIC_ROLE_PHRASES):
-            return True
-    return False
- 
- 
-def _general_answer(user_message: str, history, lang: str, detailed: bool) -> str:
+
+
+def _general_answer(user_message: str, history, lang: str, detailed: bool,
+                    ctx: dict = None) -> str:
     """
     ONE AI call total. No duplicate searches.
- 
+
+    Bug 1 fix: self-contained queries use empty history (no prior topic leakage).
+    Bug 3 fix: bare continuations with no prior ctx topic ask user for a topic.
+
     Route A: static knowledge → Groq directly (fast).
     Route B: current/fresh info → Tavily context → Groq once.
- 
-    Bug 1 fix: self-contained queries get empty history so prior
-    conversation topics don't bleed into unrelated answers.
-    Bug 2 fix: dynamic role queries (CM, PM, CEO…) always use live search.
     """
-    use_tavily = _needs_live_search(user_message)
-    print(f"[SEARCH] needs_tavily={use_tavily} for: {user_message!r}", file=sys.stderr)
- 
-    # Strip history for self-contained queries to prevent context leakage
-    safe_history = [] if _is_self_contained_query(user_message) else (history or [])
-    if safe_history != (history or []):
+    # ── Bug 3: bare continuation with no prior topic → ask user ──────────
+    if _is_bare_continuation(user_message):
+        prior_topic = (ctx or {}).get("topic", "")
+        if not prior_topic:
+            print("[SEARCH] Bare continuation with no prior topic → asking user",
+                  file=sys.stderr)
+            if lang == "te":
+                return "మీరు ఏ విషయం గురించి వివరణ కావాలో చెప్పగలరా?"
+            return "What topic would you like me to explain? Please mention a subject."
+
+    # ── Bug 1: clear history for self-contained queries ───────────────────
+    if _is_self_contained(user_message):
+        safe_history = []
         print("[SEARCH] Self-contained query — history cleared to prevent leakage",
               file=sys.stderr)
- 
+    else:
+        safe_history = history or []
+
+    use_tavily = not is_static_knowledge(user_message)
+    print(f"[SEARCH] needs_tavily={use_tavily} for: {user_message!r}", file=sys.stderr)
+
     # ── Route A: Groq direct ──────────────────────────────────────────
     if not use_tavily:
         print("[SEARCH] Route A: Groq direct (static knowledge)", file=sys.stderr)
@@ -264,11 +305,11 @@ def _general_answer(user_message: str, history, lang: str, detailed: bool) -> st
             mode="general",
             detailed=detailed,
         )
- 
+
     # ── Route B: Tavily → Groq (ONE call) ────────────────────────────
     print("[SEARCH] Route B: Tavily → Groq", file=sys.stderr)
     ctx_text = search_and_get_context(user_message, max_results=3)
- 
+
     if ctx_text:
         print(f"[SEARCH] Tavily returned {len(ctx_text)} chars", file=sys.stderr)
         if lang == "te":
@@ -287,7 +328,7 @@ def _general_answer(user_message: str, history, lang: str, detailed: bool) -> st
             prompt=prompt, history=safe_history, lang=lang,
             mode="general", detailed=detailed,
         )
- 
+
     # ── Route B fallback: pure Groq ───────────────────────────────────
     print("[SEARCH] Tavily empty — fallback to pure Groq", file=sys.stderr)
     return query_ai(
@@ -391,7 +432,7 @@ def api_chat():
  
         # ── SEARCH / GENERAL ─────────────────────────────────────────
         print(f"[ROUTE] → {intent}", file=sys.stderr)
-        reply = _general_answer(resolved, history, lang, detailed)
+        reply = _general_answer(resolved, history, lang, detailed, ctx=ctx)
  
         # Update context topic from the resolved subject
         if intent_data.get("topic"):
@@ -477,4 +518,3 @@ def api_apply():
     except Exception as exc:
         logger.exception("Apply failed: %s", exc)
         return jsonify({"success": False, "message": "Something went wrong."}), 500
- 
